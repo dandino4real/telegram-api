@@ -476,7 +476,6 @@
 
 // export default app;
 
-
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -532,8 +531,11 @@ async function initializeApp() {
 
   console.log("Starting app initialization...");
   try {
-    // 1. Temporarily bypass MongoDB for testing
-    console.log("Skipping MongoDB connection for testing...");
+    // 1. Skip MongoDB connection to avoid rate limits
+    console.log("Skipping MongoDB connection to avoid rate limits...");
+
+    // Add a delay to respect rate limits
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
 
     // 2. Setup webhook endpoints
     const baseUrl = 'https://telegram-api-k5mk.vercel.app';
@@ -551,11 +553,12 @@ async function initializeApp() {
       forexWebhook(req, res, next);
     });
 
-    // 3. Register webhooks with Telegram
+    // 3. Register webhooks with Telegram (single attempt to avoid rate limits)
+    console.log("Registering webhooks with Telegram...");
     await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
     await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
 
-    console.log("✅ App initialization complete (no DB)");
+    console.log("✅ App initialization complete (no DB, rate limit aware)");
     isInitialized = true;
   } catch (error) {
     if (error instanceof Error) {
@@ -579,11 +582,11 @@ const initializationMiddleware = async (req: Request, res: Response, next: NextF
       if (initializationError) {
         res.status(500).json({
           err: process.env.NODE_ENV === "production" ? null : initializationError,
-          msg: `Server initialization failed: ${initializationError.message}. Please try again later.`,
+          msg: `Server initialization failed: ${initializationError.message}. Please wait and try again later.`,
           data: null,
         });
       } else {
-        res.status(503).send("Server initializing... try again in 10 seconds");
+        res.status(503).send("Server initializing... please wait and try again");
       }
       return;
     }
