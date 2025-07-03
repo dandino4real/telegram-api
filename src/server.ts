@@ -36,13 +36,18 @@ app.use(
   })
 );
 
-app.use('/webhook/crypto', (req, res) => {
-  console.log('Webhook test hit:', req.body);
-  res.sendStatus(200);
-});
+// app.use('/webhook/crypto', (req, res) => {
+//   console.log('Webhook test hit:', req.body);
+//   res.sendStatus(200);
+// });
+
+console.log("Setting up webhook for cryptoBot");
+app.use('/webhook/crypto', cryptoBot.webhookCallback('/crypto'));
+
+
 // Webhook endpoints
-app.use("/webhook/crypto", cryptoBot.webhookCallback("/crypto"));
-app.use("/webhook/forex", forexBot.webhookCallback("/forex"));
+// app.use("/webhook/crypto", cryptoBot.webhookCallback("/crypto"));
+// app.use("/webhook/forex", forexBot.webhookCallback("/forex"));
 
 //Calling your Routes Layout
 app.use("/api/auth", authRoutes);
