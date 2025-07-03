@@ -8,8 +8,19 @@
   ],
   "routes": [
     {
+      "src": "/webhook/(crypto|forex)",
+      "dest": "src/index.ts",
+      "methods": ["POST"]
+    },
+    {
       "src": "/(.*)",
       "dest": "src/index.ts"
     }
-  ]
+  ],
+  "env": {
+    "BOT_TOKEN_CRYPTO": "@bot-token-crypto",
+    "BOT_TOKEN_FOREX": "@bot-token-forex",
+    "MONGO_URI": "@mongo-uri",
+    "VERCEL_URL": "@vercel-url"
+  }
 }

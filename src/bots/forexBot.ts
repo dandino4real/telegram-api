@@ -1,5 +1,5 @@
 
-import { Telegraf, Markup } from "telegraf";
+import { Context, Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
 import { sendAdminAlertForex } from "../utils/services/notifier-forex";
@@ -7,7 +7,9 @@ import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
 import { isValidLoginID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import { createLogger, transports, format } from "winston";
+import { session } from 'telegraf-session-mongodb';
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 dotenv.config();
 
 const logger = createLogger({
@@ -26,7 +28,46 @@ const getLinkLimiter = rateLimit({
     ctx.reply("🚫 Too many link requests! Try again later."),
 });
 
-const bot = new Telegraf(process.env.BOT_TOKEN_FOREX!);
+
+// Define session context
+export interface SessionContext extends Context {
+  session: {
+    step?: string;
+    captcha?: string;
+    country?: string;
+    excoTraderLoginId?: string;
+    derivLoginId?: string;
+    botType?: string;
+    retryCount?: number;
+  };
+}
+
+
+// const bot = new Telegraf(process.env.BOT_TOKEN_FOREX!);
+const bot = new Telegraf<SessionContext>(process.env.BOT_TOKEN_FOREX!);
+
+
+if (mongoose.connection.readyState === 1) {
+  const db = mongoose.connection.db;
+  if (db) {
+    bot.use(session(db, { 
+      sessionName: 'session', 
+      collectionName: 'forex_sessions'  // forex_sessions for forex bot
+    }));
+    console.log("✅ MongoDB session middleware initialized");
+  } else {
+    console.error("❌ Mongoose connected but db is undefined. Session middleware skipped");
+  }
+} else {
+  console.error("❌ Mongoose not connected. Session middleware skipped");
+}
+
+// Add session initialization middleware
+bot.use(async (ctx, next) => {
+  ctx.session ??= {};
+  return next();
+});
+
 const userSession: Record<string, any> = {};
 
 // Notify user on status change

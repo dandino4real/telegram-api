@@ -474,168 +474,139 @@
 //   });
 // });
 
-// export default app;
+
 
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
-import { Telegraf } from "telegraf"; // Import Telegraf for type safety
 import cryptoBot from "./bots/cryptoBot";
 import forexBot from "./bots/forexBot";
-
 import { connectDB } from "./config/db";
 
+// Import routes
 import cryptoUserRoutes from "./routes/crypto_user.routes";
 import forexUserRoutes from "./routes/forex_user.routes";
 import staticticsRoutes from "./routes/users_stats.routes";
 import authRoutes from "./routes/auth.routes";
 import adminRoutes from "./routes/admin.routes";
 
-// Initialize express app
 const app = express();
-
-// Initialize configuration
 dotenv.config();
 
+// Middleware setup
 app.use(helmet());
 app.use(express.json());
 app.use(cookieParser());
 
 const corsOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
   : ['https://your-frontend.vercel.app'];
 
-app.use(
-  cors({
-    origin: corsOrigins,
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
-  })
-);
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Debug middleware
 app.use((req, res, next) => {
-  console.log(`Received request at ${req.path} with body:`, req.body);
+  console.log(`Received ${req.method} request at ${req.path}`);
   next();
 });
 
-// Initialization state
+// Asynchronous initialization
 let isInitialized = false;
-let initializationError: Error | null = null;
-let webhookStatus: { crypto: string; forex: string } | null = null;
-const initializationPromise = initializeApp();
+let initializationError: any = null;
 
-async function initializeApp() {
-  if (isInitialized) return;
-
-  console.log("Starting app initialization (with cached webhook status)...");
-  let attempt = 0;
-  const maxAttempts = 3;
-  const baseDelay = 15000; // 15 seconds base delay
-
-  while (attempt < maxAttempts && !isInitialized) {
-    try {
-      // Add a delay before each attempt
-      await new Promise(resolve => setTimeout(resolve, baseDelay * attempt));
-
-      // 1. Skip MongoDB connection to avoid rate limits
-      console.log(`Attempt ${attempt + 1}/${maxAttempts}: Skipping MongoDB connection...`);
-
-      // 2. Setup webhook endpoints
-      const baseUrl = 'https://telegram-api-k5mk.vercel.app';
-      const cryptoWebhook = await cryptoBot.createWebhook({ domain: baseUrl, path: '/webhook/crypto' });
-      const forexWebhook = await forexBot.createWebhook({ domain: baseUrl, path: '/webhook/forex' });
-
-      // Apply webhook middleware immediately
-      app.use('/webhook/crypto', (req, res, next) => {
-        console.log('Crypto webhook middleware hit:', req.body);
-        cryptoWebhook(req, res, next);
-      });
-
-      app.use('/webhook/forex', (req, res, next) => {
-        console.log('Forex webhook middleware hit:', req.body);
-        forexWebhook(req, res, next);
-      });
-
-      // 3. Check and register webhooks only if status is unknown or mismatched
-      if (!webhookStatus) {
-        const cryptoWebhookInfo = await cryptoBot.telegram.getWebhookInfo();
-        webhookStatus = { crypto: cryptoWebhookInfo.url || '', forex: '' };
-        if (webhookStatus.crypto !== `${baseUrl}/webhook/crypto`) {
-          console.log("Registering crypto webhook with Telegram...");
-          await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
-          webhookStatus.crypto = `${baseUrl}/webhook/crypto`;
-        } else {
-          console.log("Crypto webhook already set, skipping registration.");
-        }
-
-        const forexWebhookInfo = await forexBot.telegram.getWebhookInfo();
-        webhookStatus.forex = forexWebhookInfo.url || '';
-        if (webhookStatus.forex !== `${baseUrl}/webhook/forex`) {
-          console.log("Registering forex webhook with Telegram...");
-          await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
-          webhookStatus.forex = `${baseUrl}/webhook/forex`;
-        } else {
-          console.log("Forex webhook already set, skipping registration.");
-        }
-      } else {
-        console.log("Using cached webhook status, skipping API calls.");
-      }
-
-      console.log("✅ App initialization complete (no DB, rate limit aware)");
-      isInitialized = true;
-      break;
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Attempt ${attempt + 1}/${maxAttempts} failed:`, error.message, error.stack);
-        initializationError = error;
-      } else {
-        console.error(`Attempt ${attempt + 1}/${maxAttempts} failed:`, error);
-        initializationError = new Error(String(error));
-      }
-      if ((typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 429) && attempt < maxAttempts - 1) {
-        console.warn("Rate limit hit (429), retrying after delay...");
-        continue;
-      } else {
-        throw error;
-      }
-    }
-    attempt++;
+const initializeApp = async () => {
+  try {
+    console.log("Starting application initialization...");
+    
+    // 1. Connect to MongoDB
+    await connectDB();
+    console.log("✅ MongoDB connected successfully");
+    
+    // 2. Set up webhooks
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'https://telegram-api-k5mk.vercel.app';
+    
+    console.log(`Setting webhooks for base URL: ${baseUrl}`);
+    
+    // Set webhooks and get responses
+    const [cryptoResponse, forexResponse] = await Promise.all([
+      cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`),
+      forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`)
+    ]);
+    
+    console.log(`Crypto webhook response: ${cryptoResponse}`);
+    console.log(`Forex webhook response: ${forexResponse}`);
+    
+    isInitialized = true;
+    console.log("✅ Application initialization complete");
+  } catch (error) {
+    console.error("❌ Initialization failed:", error);
+    initializationError = error;
+    throw error;
   }
-}
-
-// Initialization middleware
-const initializationMiddleware = async (req: Request, res: Response, next: NextFunction) => {
-  if (!isInitialized) {
-    try {
-      await initializationPromise;
-    } catch (err) {
-      console.error("Initialization middleware error:", (err as Error).message, (err as Error).stack);
-      if (initializationError && (initializationError as any).code === 429) {
-        res.status(429).json({
-          err: process.env.NODE_ENV === "production" ? null : initializationError,
-          msg: "Rate limit exceeded. Please wait 1 minute and try again.",
-          data: null,
-        });
-      } else if (initializationError) {
-        res.status(500).json({
-          err: process.env.NODE_ENV === "production" ? null : initializationError,
-          msg: `Server initialization failed: ${initializationError.message}. Please try again later.`,
-          data: null,
-        });
-      } else {
-        res.status(503).send("Server initializing... please wait and try again");
-      }
-      return;
-    }
-  }
-  next();
 };
-app.use(initializationMiddleware);
 
-// Test routes
+// Start initialization but don't block server start
+initializeApp().catch(err => {
+  console.error("Initialization error:", err);
+});
+
+// Webhook handlers with initialization check
+app.post('/webhook/crypto', (req, res) => {
+  if (!isInitialized) {
+    setTimeout(() => {
+      if (!isInitialized) {
+        return res.status(503).send("Server initializing. Please try again.");
+      }
+      // Process the update after initialization
+      cryptoBot.handleUpdate(req.body, res);
+    }, 1000);
+  } else {
+    cryptoBot.handleUpdate(req.body, res);
+  }
+});
+
+app.post('/webhook/forex', (req, res) => {
+  if (!isInitialized) {
+    setTimeout(() => {
+      if (!isInitialized) {
+        return res.status(503).send("Server initializing. Please try again.");
+      }
+      // Process the update after initialization
+      forexBot.handleUpdate(req.body, res);
+    }, 1000);
+  } else {
+    forexBot.handleUpdate(req.body, res);
+  }
+});
+
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/users", cryptoUserRoutes);
+app.use("/api/users", staticticsRoutes);
+app.use("/api/users", forexUserRoutes);
+app.use("/api/admin", adminRoutes);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const status = isInitialized ? 'ok' : 'initializing';
+  const error = initializationError ? initializationError.message : null;
+  res.status(200).json({ 
+    status, 
+    error,
+    bots: ['crypto', 'forex'],
+    initialized: isInitialized
+  });
+});
+
+// Test endpoint for webhooks
 app.get('/webhook-test', (req, res) => {
   res.status(200).json({ status: 'Webhook test successful' });
 });
@@ -645,41 +616,36 @@ app.post('/webhook-test', (req, res) => {
   res.status(200).send('OK');
 });
 
-// Calling your Routes Layout
-app.use("/api/auth", authRoutes);
-app.use("/api/users", cryptoUserRoutes);
-app.use("/api/users", staticticsRoutes);
-app.use("/api/users", forexUserRoutes);
-app.use("/api/admin", adminRoutes);
-
 // Graceful shutdown
 process.once('SIGINT', async () => {
+  console.log("SIGINT received. Shutting down gracefully...");
   await cryptoBot.stop('SIGINT');
   await forexBot.stop('SIGINT');
   process.exit(0);
 });
 
 process.once('SIGTERM', async () => {
+  console.log("SIGTERM received. Shutting down gracefully...");
   await cryptoBot.stop('SIGTERM');
   await forexBot.stop('SIGTERM');
   process.exit(0);
 });
 
+// Error handling middleware
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   const status = err.status || 500;
-  console.error(`Error handler triggered: ${err.message}`, err.stack);
+  console.error(`❌ Error [${status}] at ${req.method} ${req.path}:`, err.message, err.stack);
+  
   res.status(status).json({
-    err: process.env.NODE_ENV === "production" ? null : err,
-    msg: err.message || "Internal Server Error",
-    data: null,
+    error: process.env.NODE_ENV === "production" ? null : err,
+    message: err.message || "Internal Server Error"
   });
 });
 
+// 404 Handler
 app.use((req: Request, res: Response) => {
   res.status(404).json({
-    err: null,
-    msg: "404 Not Found",
-    data: null,
+    message: `Endpoint ${req.method} ${req.path} not found`
   });
 });
 

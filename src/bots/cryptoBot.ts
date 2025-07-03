@@ -1,6 +1,6 @@
 
 
-import { Telegraf, Markup } from "telegraf";
+import { Context,Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
 import { sendAdminAlertCrypto } from "../utils/services/notifier-crypto";
@@ -10,7 +10,49 @@ import rateLimit from "telegraf-ratelimit";
 import dotenv from "dotenv";
 dotenv.config();
 
-const bot = new Telegraf(process.env.BOT_TOKEN_CRYPTO!);
+// Add this at the top after imports
+import { session } from 'telegraf-session-mongodb';
+
+export interface SessionContext extends Context {
+  session: {
+    step?: string;
+    captcha?: string;
+    country?: string;
+    bybitUid?: string;
+    blofinUid?: string;
+    requiresBoth?: boolean;
+    botType?: string;
+  };
+}
+
+import mongoose from "mongoose";
+
+// const bot = new Telegraf(process.env.BOT_TOKEN_CRYPTO!);
+const bot = new Telegraf<SessionContext>(process.env.BOT_TOKEN!);
+
+
+if (mongoose.connection.readyState === 1) {
+  const db = mongoose.connection.db;
+  if (db) {
+    bot.use(session(db, { 
+      sessionName: 'session', 
+      collectionName: 'crypto_sessions'  // forex_sessions for forex bot
+    }));
+    console.log("✅ MongoDB session middleware initialized");
+  } else {
+    console.error("❌ Mongoose connected but db is undefined. Session middleware skipped");
+  }
+} else {
+  console.error("❌ Mongoose not connected. Session middleware skipped");
+}
+
+// Add session initialization middleware
+bot.use(async (ctx, next) => {
+  ctx.session ??= {};
+  return next();
+});
+
+
 const userSession: Record<string, any> = {};
 
 // Notify user on status change
