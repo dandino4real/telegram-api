@@ -304,63 +304,63 @@ const setupBots = async () => {
 let isInitialized = false;
 let initializationError: any = null;
 
-const initializeApp = async () => {
-  try {
-    console.log("Starting application initialization...");
-
-    // 1. Connect to MongoDB
-    await connectDB();
-    console.log("✅ MongoDB connected successfully");
-
-    // 2. Set up webhooks with secret token
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "https://telegram-api-k5mk.vercel.app";
-
-    console.log(`Setting webhooks for base URL: ${baseUrl}`);
-
-    // Set webhooks with secret token
-    await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`, {
-      secret_token: process.env.WEBHOOK_SECRET,
-    });
-    console.log("✅ Crypto webhook set");
-
-    await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`, {
-      secret_token: process.env.WEBHOOK_SECRET,
-    });
-    console.log("✅ Forex webhook set");
-
-    isInitialized = true;
-    console.log("✅ Application initialization complete");
-  } catch (error) {
-    console.error("❌ Initialization failed:", error);
-    initializationError = error;
-    throw error;
-  }
-};
-
 // const initializeApp = async () => {
 //   try {
-//     console.log("🚀 Starting application initialization...");
-    
+//     console.log("Starting application initialization...");
+
 //     // 1. Connect to MongoDB
-//     console.log("Connecting to MongoDB...");
 //     await connectDB();
 //     console.log("✅ MongoDB connected successfully");
-    
-//     // 2. Set up webhooks
-//     console.log("Setting up webhooks...");
-//     await setupBots();
-    
+
+//     // 2. Set up webhooks with secret token
+//     const baseUrl = process.env.VERCEL_URL
+//       ? `https://${process.env.VERCEL_URL}`
+//       : "https://telegram-api-k5mk.vercel.app";
+
+//     console.log(`Setting webhooks for base URL: ${baseUrl}`);
+
+//     // Set webhooks with secret token
+//     await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`, {
+//       secret_token: process.env.WEBHOOK_SECRET,
+//     });
+//     console.log("✅ Crypto webhook set");
+
+//     await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`, {
+//       secret_token: process.env.WEBHOOK_SECRET,
+//     });
+//     console.log("✅ Forex webhook set");
+
 //     isInitialized = true;
-//     console.log("✅✅✅ Application initialization complete ✅✅✅");
-//     return true;
+//     console.log("✅ Application initialization complete");
 //   } catch (error) {
-//     console.error("❌❌❌ Initialization failed:", error);
+//     console.error("❌ Initialization failed:", error);
 //     initializationError = error;
 //     throw error;
 //   }
 // };
+
+const initializeApp = async () => {
+  try {
+    console.log("🚀 Starting application initialization...");
+    
+    // 1. Connect to MongoDB
+    console.log("Connecting to MongoDB...");
+    await connectDB();
+    console.log("✅ MongoDB connected successfully");
+    
+    // 2. Set up webhooks
+    console.log("Setting up webhooks...");
+    await setupBots();
+    
+    isInitialized = true;
+    console.log("✅✅✅ Application initialization complete ✅✅✅");
+    return true;
+  } catch (error) {
+    console.error("❌❌❌ Initialization failed:", error);
+    initializationError = error;
+    throw error;
+  }
+};
 
 
 // Start initialization
