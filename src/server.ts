@@ -36,6 +36,10 @@ app.use(
   })
 );
 
+app.use('/webhook/crypto', (req, res) => {
+  console.log('Webhook test hit:', req.body);
+  res.sendStatus(200);
+});
 // Webhook endpoints
 app.use("/webhook/crypto", cryptoBot.webhookCallback("/crypto"));
 app.use("/webhook/forex", forexBot.webhookCallback("/forex"));
