@@ -475,6 +475,7 @@
 // });
 
 // export default app;
+
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -523,68 +524,80 @@ app.use((req, res, next) => {
 // Initialization state
 let isInitialized = false;
 let initializationError: Error | null = null;
+let webhookStatus: { crypto: string; forex: string } | null = null;
 const initializationPromise = initializeApp();
 
 async function initializeApp() {
   if (isInitialized) return;
 
-  console.log("Starting app initialization (single attempt with delay)...");
-  try {
-    // 1. Skip MongoDB connection to avoid rate limits
-    console.log("Skipping MongoDB connection to avoid rate limits...");
+  console.log("Starting app initialization (with cached webhook status)...");
+  let attempt = 0;
+  const maxAttempts = 3;
+  const baseDelay = 15000; // 15 seconds base delay
 
-    // Add a longer delay to respect rate limits
-    await new Promise(resolve => setTimeout(resolve, 15000)); // Wait 15 seconds
+  while (attempt < maxAttempts && !isInitialized) {
+    try {
+      // Add a delay before each attempt
+      await new Promise(resolve => setTimeout(resolve, baseDelay * attempt));
 
-    // 2. Setup webhook endpoints
-    const baseUrl = 'https://telegram-api-k5mk.vercel.app';
-    const cryptoWebhook = await cryptoBot.createWebhook({ domain: baseUrl, path: '/webhook/crypto' });
-    const forexWebhook = await forexBot.createWebhook({ domain: baseUrl, path: '/webhook/forex' });
+      // 1. Skip MongoDB connection to avoid rate limits
+      console.log(`Attempt ${attempt + 1}/${maxAttempts}: Skipping MongoDB connection...`);
 
-    // Apply webhook middleware immediately
-    app.use('/webhook/crypto', (req, res, next) => {
-      console.log('Crypto webhook middleware hit:', req.body);
-      cryptoWebhook(req, res, next);
-    });
+      // 2. Setup webhook endpoints
+      const baseUrl = 'https://telegram-api-k5mk.vercel.app';
+      const cryptoWebhook = await cryptoBot.createWebhook({ domain: baseUrl, path: '/webhook/crypto' });
+      const forexWebhook = await forexBot.createWebhook({ domain: baseUrl, path: '/webhook/forex' });
 
-    app.use('/webhook/forex', (req, res, next) => {
-      console.log('Forex webhook middleware hit:', req.body);
-      forexWebhook(req, res, next);
-    });
+      // Apply webhook middleware immediately
+      app.use('/webhook/crypto', (req, res, next) => {
+        console.log('Crypto webhook middleware hit:', req.body);
+        cryptoWebhook(req, res, next);
+      });
 
-    // 3. Check and register webhooks only if needed
-    const cryptoWebhookInfo = await cryptoBot.telegram.getWebhookInfo();
-    if (!cryptoWebhookInfo.url || cryptoWebhookInfo.url !== `${baseUrl}/webhook/crypto`) {
-      console.log("Registering crypto webhook with Telegram...");
-      await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
-    } else {
-      console.log("Crypto webhook already set, skipping registration.");
+      app.use('/webhook/forex', (req, res, next) => {
+        console.log('Forex webhook middleware hit:', req.body);
+        forexWebhook(req, res, next);
+      });
+
+      // 3. Check and register webhooks only if status is unknown or mismatched
+      if (!webhookStatus) {
+        const cryptoWebhookInfo = await cryptoBot.telegram.getWebhookInfo();
+        webhookStatus = { crypto: cryptoWebhookInfo.url || '', forex: '' };
+        if (webhookStatus.crypto !== `${baseUrl}/webhook/crypto`) {
+          console.log("Registering crypto webhook with Telegram...");
+          await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
+          webhookStatus.crypto = `${baseUrl}/webhook/crypto`;
+        } else {
+          console.log("Crypto webhook already set, skipping registration.");
+        }
+
+        const forexWebhookInfo = await forexBot.telegram.getWebhookInfo();
+        webhookStatus.forex = forexWebhookInfo.url || '';
+        if (webhookStatus.forex !== `${baseUrl}/webhook/forex`) {
+          console.log("Registering forex webhook with Telegram...");
+          await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
+          webhookStatus.forex = `${baseUrl}/webhook/forex`;
+        } else {
+          console.log("Forex webhook already set, skipping registration.");
+        }
+      } else {
+        console.log("Using cached webhook status, skipping API calls.");
+      }
+
+      console.log("✅ App initialization complete (no DB, rate limit aware)");
+      isInitialized = true;
+      break;
+    } catch (error) {
+      console.error(`Attempt ${attempt + 1}/${maxAttempts} failed:`, error.message || error, (error as Error).stack);
+      initializationError = error as Error;
+      if ((error as any).code === 429 && attempt < maxAttempts - 1) {
+        console.warn("Rate limit hit (429), retrying after delay...");
+        continue;
+      } else {
+        throw error;
+      }
     }
-
-    const forexWebhookInfo = await forexBot.telegram.getWebhookInfo();
-    if (!forexWebhookInfo.url || forexWebhookInfo.url !== `${baseUrl}/webhook/forex`) {
-      console.log("Registering forex webhook with Telegram...");
-      await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
-    } else {
-      console.log("Forex webhook already set, skipping registration.");
-    }
-
-    console.log("✅ App initialization complete (no DB, rate limit aware)");
-    isInitialized = true;
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error("❌ Initialization failed:", error.message, error.stack);
-      initializationError = error;
-    } else {
-      console.error("❌ Initialization failed:", String(error));
-      initializationError = new Error(String(error));
-    }
-    if ((error as any)?.code === 429) {
-      console.warn("Rate limit hit (429), initialization deferred. Please wait and retry.");
-      // Do not throw, allow middleware to handle with 429
-    } else {
-      throw error;
-    }
+    attempt++;
   }
 }
 
