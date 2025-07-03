@@ -412,4 +412,9 @@ async function saveAndNotify(ctx: any, session: any) {
 // Start watching for status changes
 watchUserStatusChanges();
 
+// Add this error handler to your bot instance
+bot.catch((err, ctx) => {
+  console.error(`🚨 Crypto Bot Error for update ${ctx.update.update_id}:`, err);
+  ctx.reply("❌ An error occurred. Please try again later.");
+});
 export default bot;

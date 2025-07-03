@@ -419,9 +419,5 @@ async function saveAndNotify(ctx: any, session: any) {
 // Start watching for status changes
 watchUserStatusChanges();
 
-bot
-  .launch({ allowedUpdates: ["message", "callback_query"] })
-  .then(() => console.log("✅ Forex bot is up and running!"))
-  .catch((err) => console.error("❌ Forex bot failed to launch:", err));
 
 export default bot;
