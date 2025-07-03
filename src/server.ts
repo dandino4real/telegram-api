@@ -293,7 +293,6 @@
 // export default app;
 
 
-
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -346,43 +345,60 @@ const initializationPromise = initializeApp();
 
 async function initializeApp() {
   if (isInitialized) return;
-  
+
   console.log("Starting app initialization...");
   try {
-    // 1. Connect to MongoDB
-    await connectDB();
-    console.log("MongoDB connected successfully");
+    // 1. Connect to MongoDB with retry logic
+    let attempts = 0;
+    const maxAttempts = 3;
+    while (attempts < maxAttempts) {
+      try {
+        console.log(`Attempting MongoDB connection (Attempt ${attempts + 1}/${maxAttempts})...`);
+        await connectDB();
+        console.log("MongoDB connected successfully");
+        break;
+      } catch (dbError) {
+        attempts++;
+        if (attempts === maxAttempts) throw dbError;
+        console.warn(
+          `MongoDB connection failed, retrying in 2 seconds:`,
+          dbError instanceof Error ? dbError.message : dbError
+        );
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
 
     // 2. Setup webhook endpoints
     const baseUrl = 'https://telegram-api-k5mk.vercel.app';
-    const cryptoWebhook = await cryptoBot.createWebhook({ domain: baseUrl });
-    const forexWebhook = await forexBot.createWebhook({ domain: baseUrl });
-    
-    // Apply webhook middleware immediately
+    const cryptoWebhook = await cryptoBot.createWebhook({ domain: baseUrl, path: '/webhook/crypto' });
+    const forexWebhook = await forexBot.createWebhook({ domain: baseUrl, path: '/webhook/forex' });
+
+    // Apply webhook middleware with explicit paths
     app.use('/webhook/crypto', (req, res, next) => {
       console.log('Crypto webhook middleware hit:', req.body);
       cryptoWebhook(req, res, next);
     });
-    
+
     app.use('/webhook/forex', (req, res, next) => {
       console.log('Forex webhook middleware hit:', req.body);
       forexWebhook(req, res, next);
     });
-    
-    // 3. Register webhooks with Telegram
+
+    // 3. Register webhooks with Telegram (ensure path matches)
     await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
     await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
-    
+
     console.log("✅ App initialization complete");
     isInitialized = true;
   } catch (error) {
     if (error instanceof Error) {
       console.error("❌ Initialization failed:", error.message, error.stack);
+      initializationError = error;
     } else {
       console.error("❌ Initialization failed:", error);
+      initializationError = new Error(String(error));
     }
-    initializationError = error as Error;
-    throw error; // Re-throw to be caught by middleware
+    throw error;
   }
 }
 
@@ -396,7 +412,7 @@ const initializationMiddleware = async (req: Request, res: Response, next: NextF
       if (initializationError) {
         res.status(500).json({
           err: process.env.NODE_ENV === "production" ? null : initializationError,
-          msg: "Server is initializing or encountered an error. Please try again later.",
+          msg: `Server initialization failed: ${initializationError.message}. Please try again later.`,
           data: null,
         });
       } else {
