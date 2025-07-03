@@ -475,7 +475,6 @@
 // });
 
 // export default app;
-
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -529,13 +528,13 @@ const initializationPromise = initializeApp();
 async function initializeApp() {
   if (isInitialized) return;
 
-  console.log("Starting app initialization...");
+  console.log("Starting app initialization (single attempt)...");
   try {
     // 1. Skip MongoDB connection to avoid rate limits
     console.log("Skipping MongoDB connection to avoid rate limits...");
 
-    // Add a delay to respect rate limits
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+    // Add a longer delay to respect rate limits
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
 
     // 2. Setup webhook endpoints
     const baseUrl = 'https://telegram-api-k5mk.vercel.app';
@@ -553,8 +552,8 @@ async function initializeApp() {
       forexWebhook(req, res, next);
     });
 
-    // 3. Register webhooks with Telegram (single attempt to avoid rate limits)
-    console.log("Registering webhooks with Telegram...");
+    // 3. Register webhooks with Telegram (single attempt)
+    console.log("Registering webhooks with Telegram (one-time)...");
     await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
     await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
 
@@ -568,7 +567,12 @@ async function initializeApp() {
       console.error("❌ Initialization failed:", error);
       initializationError = new Error(String(error));
     }
-    throw error;
+    if ((error as any).code === 429) {
+      console.warn("Rate limit hit (429), initialization deferred. Please wait and retry.");
+      // Do not throw, allow middleware to handle with 503
+    } else {
+      throw error;
+    }
   }
 }
 
@@ -579,10 +583,16 @@ const initializationMiddleware = async (req: Request, res: Response, next: NextF
       await initializationPromise;
     } catch (err) {
       console.error("Initialization middleware error:", (err as Error).message, (err as Error).stack);
-      if (initializationError) {
+      if (initializationError && (initializationError as any).code === 429) {
+        res.status(429).json({
+          err: process.env.NODE_ENV === "production" ? null : initializationError,
+          msg: "Rate limit exceeded. Please wait 1 minute and try again.",
+          data: null,
+        });
+      } else if (initializationError) {
         res.status(500).json({
           err: process.env.NODE_ENV === "production" ? null : initializationError,
-          msg: `Server initialization failed: ${initializationError.message}. Please wait and try again later.`,
+          msg: `Server initialization failed: ${initializationError.message}. Please try again later.`,
           data: null,
         });
       } else {
