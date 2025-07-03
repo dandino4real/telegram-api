@@ -284,13 +284,21 @@ const setupBots = async () => {
     // CRYPTO BOT
     const cryptoWebhook = `${baseUrl}/webhook/crypto`;
     console.log(`Setting crypto webhook to: ${cryptoWebhook}`);
-    await cryptoBot.telegram.setWebhook(cryptoWebhook);
+    
+    // Add secret token here
+    await cryptoBot.telegram.setWebhook(cryptoWebhook, {
+      secret_token: process.env.WEBHOOK_SECRET
+    });
     console.log("✅ Crypto webhook set successfully");
     
     // FOREX BOT
     const forexWebhook = `${baseUrl}/webhook/forex`;
     console.log(`Setting forex webhook to: ${forexWebhook}`);
-    await forexBot.telegram.setWebhook(forexWebhook);
+    
+    // Add secret token here
+    await forexBot.telegram.setWebhook(forexWebhook, {
+      secret_token: process.env.WEBHOOK_SECRET
+    });
     console.log("✅ Forex webhook set successfully");
     
     return true;
@@ -371,30 +379,31 @@ initializeApp().catch((err) => {
 // Create a wrapper function for webhook handling
 const createWebhookHandler = (bot: Telegraf<BotContext>) => {
   return (req: Request, res: Response, next: NextFunction) => {
+    console.log(`Received ${req.method} request at ${req.path}`);
+    
     if (!isInitialized) {
+      console.log("Server not initialized, returning 503");
       res.status(503).send("Server initializing. Please try again.");
       return;
     }
 
     // Verify secret token
-    if (
-      req.headers["x-telegram-bot-api-secret-token"] !==
-      process.env.WEBHOOK_SECRET
-    ) {
+    const receivedToken = req.headers["x-telegram-bot-api-secret-token"];
+    if (receivedToken !== process.env.WEBHOOK_SECRET) {
       console.warn(
-        `Unauthorized webhook access attempt to ${req.path} endpoint`
+        `Unauthorized webhook access attempt to ${req.path} endpoint. ` +
+        `Received: ${receivedToken}, Expected: ${process.env.WEBHOOK_SECRET}`
       );
       res.status(401).send("Unauthorized");
       return;
     }
 
     try {
-      // Handle the update
+      console.log("Processing Telegram update");
       bot.handleUpdate(req.body, res);
     } catch (error) {
       console.error(`Webhook error for ${req.path}:`, error);
 
-      // Only send error response if headers haven't been sent yet
       if (!res.headersSent) {
         res.status(500).send("Internal server error");
       }
