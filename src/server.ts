@@ -58,21 +58,18 @@ app.use("/api/admin", adminRoutes);
   await connectDB();
   await cryptoBot.launch();
   await forexBot.launch();
-  console.log("🤖 Telegram bot started");
 })();
 
 // Graceful shutdown
 process.once('SIGINT', async () => {
-  console.log("Shutting down server and bots...");
-  await cryptoBot.stop('SIGINT');
-  await forexBot.stop('SIGINT');
+  cryptoBot.stop('SIGINT');
+  forexBot.stop('SIGINT');
   process.exit(0);
 });
 
 process.once('SIGTERM', async () => {
-  console.log("Shutting down server and bots...");
-  await cryptoBot.stop('SIGTERM');
-  await forexBot.stop('SIGTERM');
+  cryptoBot.stop('SIGTERM');
+  forexBot.stop('SIGTERM');
   process.exit(0);
 });
 // server.ts
