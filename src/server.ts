@@ -534,9 +534,9 @@ async function initializeApp() {
     console.log("Skipping MongoDB connection to avoid rate limits...");
 
     // Add a longer delay to respect rate limits
-    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+    await new Promise(resolve => setTimeout(resolve, 15000)); // Wait 15 seconds
 
-    // 2. Setup webhook endpoints only if not already set
+    // 2. Setup webhook endpoints
     const baseUrl = 'https://telegram-api-k5mk.vercel.app';
     const cryptoWebhook = await cryptoBot.createWebhook({ domain: baseUrl, path: '/webhook/crypto' });
     const forexWebhook = await forexBot.createWebhook({ domain: baseUrl, path: '/webhook/forex' });
@@ -552,15 +552,21 @@ async function initializeApp() {
       forexWebhook(req, res, next);
     });
 
-    // 3. Register webhooks with Telegram only if not already registered
-    const webhookInfo = await cryptoBot.telegram.getWebhookInfo();
-    if (!webhookInfo.url || webhookInfo.url !== `${baseUrl}/webhook/crypto`) {
+    // 3. Check and register webhooks only if needed
+    const cryptoWebhookInfo = await cryptoBot.telegram.getWebhookInfo();
+    if (!cryptoWebhookInfo.url || cryptoWebhookInfo.url !== `${baseUrl}/webhook/crypto`) {
       console.log("Registering crypto webhook with Telegram...");
       await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
+    } else {
+      console.log("Crypto webhook already set, skipping registration.");
     }
-    if (!webhookInfo.url || webhookInfo.url !== `${baseUrl}/webhook/forex`) {
+
+    const forexWebhookInfo = await forexBot.telegram.getWebhookInfo();
+    if (!forexWebhookInfo.url || forexWebhookInfo.url !== `${baseUrl}/webhook/forex`) {
       console.log("Registering forex webhook with Telegram...");
       await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
+    } else {
+      console.log("Forex webhook already set, skipping registration.");
     }
 
     console.log("✅ App initialization complete (no DB, rate limit aware)");
@@ -570,10 +576,10 @@ async function initializeApp() {
       console.error("❌ Initialization failed:", error.message, error.stack);
       initializationError = error;
     } else {
-      console.error("❌ Initialization failed:", error);
+      console.error("❌ Initialization failed:", String(error));
       initializationError = new Error(String(error));
     }
-    if ((error as any).code === 429) {
+    if ((error as any)?.code === 429) {
       console.warn("Rate limit hit (429), initialization deferred. Please wait and retry.");
       // Do not throw, allow middleware to handle with 429
     } else {
