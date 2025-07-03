@@ -300,7 +300,11 @@ const baseUrl = 'https://telegram-api-k5mk.vercel.app';
 
     console.log("Webhooks initialized successfully");
   } catch (error) {
-    console.error("Webhook initialization failed:", error.message || error);
+    if (error instanceof Error) {
+      console.error("Webhook initialization failed:", error.message);
+    } else {
+      console.error("Webhook initialization failed:", error);
+    }
   }
 })();
 
@@ -319,7 +323,11 @@ const baseUrl = 'https://telegram-api-k5mk.vercel.app';
     console.log("Forex webhook response:", JSON.stringify(forexResponse));
     console.log("Webhooks configured for crypto and forex bots");
   } catch (error) {
-    console.error("Initialization failed:", error.message || error, error.stack);
+    if (error instanceof Error) {
+      console.error("Initialization failed:", error.message, error.stack);
+    } else {
+      console.error("Initialization failed:", String(error));
+    }
   }
 })();
 
