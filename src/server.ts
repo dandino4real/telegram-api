@@ -588,9 +588,14 @@ async function initializeApp() {
       isInitialized = true;
       break;
     } catch (error) {
-      console.error(`Attempt ${attempt + 1}/${maxAttempts} failed:`, error.message || error, (error as Error).stack);
-      initializationError = error as Error;
-      if ((error as any).code === 429 && attempt < maxAttempts - 1) {
+      if (error instanceof Error) {
+        console.error(`Attempt ${attempt + 1}/${maxAttempts} failed:`, error.message, error.stack);
+        initializationError = error;
+      } else {
+        console.error(`Attempt ${attempt + 1}/${maxAttempts} failed:`, error);
+        initializationError = new Error(String(error));
+      }
+      if ((typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 429) && attempt < maxAttempts - 1) {
         console.warn("Rate limit hit (429), retrying after delay...");
         continue;
       } else {
