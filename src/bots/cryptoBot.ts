@@ -7,8 +7,13 @@ import { sendAdminAlertCrypto } from "../utils/services/notifier-crypto";
 import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
 import { isValidUID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
 dotenv.config();
+
+// Add this validation before creating the bot
+if (!process.env.BOT_TOKEN_CRYPTO) {
+  throw new Error("BOT_TOKEN_CRYPTO is not defined");
+}
 
 // Add this at the top after imports
 import { session } from 'telegraf-session-mongodb';

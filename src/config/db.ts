@@ -1,11 +1,13 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-export  async function connectDB() {
-  // Use process.env directly without || '' - we've already validated it
-  const mongoUri = process.env.MONGO_URI!;
+export async function connectDB() {
+  const mongoUri = process.env.MONGO_URI;
+  
+  if (!mongoUri) {
+    throw new Error("MONGO_URI is not defined in environment variables");
+  }
 
   console.log('Connecting to MongoDB...');
-  
   try {
     await mongoose.connect(mongoUri);
     console.log('✅ MongoDB connected successfully');

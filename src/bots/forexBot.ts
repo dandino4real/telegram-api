@@ -8,9 +8,14 @@ import { isValidLoginID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import { createLogger, transports, format } from "winston";
 import { session } from 'telegraf-session-mongodb';
-import dotenv from "dotenv";
 import mongoose from "mongoose";
+import dotenv from 'dotenv';
 dotenv.config();
+
+// Add this validation before creating the bot
+if (!process.env.BOT_TOKEN_FOREX) {
+  throw new Error("BOT_TOKEN_CRYPTO is not defined");
+}
 
 const logger = createLogger({
   level: "warn",
