@@ -1,13 +1,22 @@
+
 {
   "version": 2,
   "builds": [
     {
-      "src": "src/index.ts",
+      "src": "src/index.ts", 
       "use": "@vercel/node",
       "config": { "includeFiles": ["**/*.ts"] }
     }
   ],
   "routes": [
+    {
+      "src": "/webhook/crypto",
+      "dest": "src/index.ts"
+    },
+    {
+      "src": "/webhook/forex",
+      "dest": "src/index.ts"
+    },
     {
       "src": "/(.*)",
       "dest": "src/index.ts"

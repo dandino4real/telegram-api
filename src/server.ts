@@ -4,11 +4,9 @@ import helmet from "helmet";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 
-
 import { connectDB } from "./config/db";
 import cryptoBot from "./bots/cryptoBot";
 import forexBot from "./bots/forexBot";
-
 
 import cryptoUserRoutes from "./routes/crypto_user.routes";
 import forexUserRoutes from "./routes/forex_user.routes";
@@ -22,30 +20,25 @@ const app = express();
 // Initialize configuration
 dotenv.config();
 
-
 app.use(helmet());
 app.use(express.json());
 app.use(cookieParser());
-// app.use(
-//   cors({
-//     origin: ["http://localhost:4000", "http://localhost:3000"], // change to your frontend domain
-//     credentials: true, // allow sending cookies
-//     allowedHeaders: ['Content-Type', 'Authorization']
-//   })
-// );
 
 const corsOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
-  : ['https://your-frontend.vercel.app']
+  ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
+  : ["https://your-frontend.vercel.app"];
 
 app.use(
   cors({
     origin: corsOrigins,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
+// Webhook endpoints
+app.use("/webhook/crypto", cryptoBot.webhookCallback("/crypto"));
+app.use("/webhook/forex", forexBot.webhookCallback("/forex"));
 
 //Calling your Routes Layout
 app.use("/api/auth", authRoutes);
@@ -56,20 +49,23 @@ app.use("/api/admin", adminRoutes);
 
 (async () => {
   await connectDB();
-  await cryptoBot.launch();
-  await forexBot.launch();
+  // Set webhooks instead of launching polling
+  const baseUrl = "https://telegram-api-k5mk.vercel.app";
+  await cryptoBot.telegram.setWebhook(`${baseUrl}/webhook/crypto`);
+  await forexBot.telegram.setWebhook(`${baseUrl}/webhook/forex`);
+  console.log("Webhooks configured for crypto and forex bots");
 })();
 
 // Graceful shutdown
-process.once('SIGINT', async () => {
-  cryptoBot.stop('SIGINT');
-  forexBot.stop('SIGINT');
+process.once("SIGINT", async () => {
+  cryptoBot.stop("SIGINT");
+  forexBot.stop("SIGINT");
   process.exit(0);
 });
 
-process.once('SIGTERM', async () => {
-  cryptoBot.stop('SIGTERM');
-  forexBot.stop('SIGTERM');
+process.once("SIGTERM", async () => {
+  cryptoBot.stop("SIGTERM");
+  forexBot.stop("SIGTERM");
   process.exit(0);
 });
 // server.ts
