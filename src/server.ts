@@ -197,6 +197,14 @@ dotenv.config({
     process.env.NODE_ENV === "production" ? ".env.production" : ".env.local",
 });
 
+
+// Add debug log for environment variables
+console.log("Environment variables loaded:");
+console.log("BOT_TOKEN_CRYPTO:", process.env.BOT_TOKEN_CRYPTO ? "exists" : "MISSING");
+console.log("BOT_TOKEN_FOREX:", process.env.BOT_TOKEN_FOREX ? "exists" : "MISSING");
+console.log("VERCEL_URL:", process.env.VERCEL_URL || "Not set");
+console.log("MONGODB_URI:", process.env.MONGODB_URI ? "exists" : "MISSING");
+
 // Validate critical environment variables
 const requiredEnvVars = [
   "BOT_TOKEN_CRYPTO",
@@ -234,6 +242,17 @@ app.use((req, res, next) => {
   next();
 });
 
+
+// ===================================================================
+// Create bot instances and set up bot logic
+// ===================================================================
+// Validate tokens before creating bots
+if (!process.env.BOT_TOKEN_CRYPTO || !process.env.BOT_TOKEN_FOREX) {
+  console.error("FATAL ERROR: Bot tokens are not configured in environment variables.");
+  process.exit(1);
+}
+
+
 // Create bot instances
 const cryptoBot = new Telegraf<BotContext>(process.env.BOT_TOKEN_CRYPTO!);
 const forexBot = new Telegraf<BotContext>(process.env.BOT_TOKEN_FOREX!);
@@ -249,6 +268,37 @@ import forexBotHandler from "./bots/forexBot";
 // Initialize bots
 cryptoBotHandler(cryptoBot);
 forexBotHandler(forexBot);
+
+
+// ===================================================================
+// Webhook setup function with enhanced logging
+// ===================================================================
+const setupBots = async () => {
+  const baseUrl = process.env.VERCEL_URL 
+    ? `https://${process.env.VERCEL_URL}` 
+    : 'https://telegram-api-k5mk.vercel.app';
+
+  console.log(`Setting webhooks for base URL: ${baseUrl}`);
+  
+  try {
+    // CRYPTO BOT
+    const cryptoWebhook = `${baseUrl}/webhook/crypto`;
+    console.log(`Setting crypto webhook to: ${cryptoWebhook}`);
+    await cryptoBot.telegram.setWebhook(cryptoWebhook);
+    console.log("✅ Crypto webhook set successfully");
+    
+    // FOREX BOT
+    const forexWebhook = `${baseUrl}/webhook/forex`;
+    console.log(`Setting forex webhook to: ${forexWebhook}`);
+    await forexBot.telegram.setWebhook(forexWebhook);
+    console.log("✅ Forex webhook set successfully");
+    
+    return true;
+  } catch (error) {
+    console.error("❌ Webhook setup error:", error);
+    throw error;
+  }
+};
 
 // Asynchronous initialization
 let isInitialized = false;
@@ -327,6 +377,34 @@ const createWebhookHandler = (bot: Telegraf<BotContext>) => {
     }
   };
 };
+
+
+
+// Start initialization with retry logic
+const MAX_RETRIES = 3;
+let retryCount = 0;
+
+const startInitialization = async () => {
+  while (retryCount < MAX_RETRIES && !isInitialized) {
+    try {
+      console.log(`Attempt ${retryCount + 1} of ${MAX_RETRIES}`);
+      await initializeApp();
+    } catch (error) {
+      console.error(`Initialization attempt ${retryCount + 1} failed`);
+      retryCount++;
+      
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Retrying in 5 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } else {
+        console.error("🚨🚨🚨 Maximum initialization attempts reached. Application failed to start. 🚨🚨🚨");
+      }
+    }
+  }
+};
+
+// Start initialization
+startInitialization();
 
 // Apply the webhook handlers
 app.post("/webhook/crypto", express.json(), createWebhookHandler(cryptoBot));
