@@ -13,6 +13,6 @@ export const sendOTPEmail = async (to: string, name: string, otp: string) => {
     console.log(`✅ OTP email sent successfully to ${to} at ${new Date().toISOString()}`);
   } catch (err) {
     console.error(`❌ Failed to send OTP email to ${to}:`, err);
-    throw err; // Re-throw to allow retry logic to handle
+    throw err; 
   }
 };

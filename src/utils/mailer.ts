@@ -1,5 +1,9 @@
 
 import nodemailer from 'nodemailer';
+import dotenv from 'dotenv'
+dotenv.config()
+
+console.log('Email_user', process.env.EMAIL_USER)
 
 export const transporter = nodemailer.createTransport({
   // service: 'gmail', // Or use SMTP for production

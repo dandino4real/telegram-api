@@ -10,8 +10,6 @@ import geoip from "geoip-lite";
 import { sendNewLocationAlert } from "../emails/sendNewIpAlert";
 import { sendLoginNotification } from "../emails/sendLoginNotification";
 import crypto from "crypto";
-import { otpTemplate } from "../templates/otpTemplate";
-import { AdminType } from "../models/admin.model";
 import { sendOTPEmail } from "../emails/sendOtpNotification";
 
 export const AuthService = {
@@ -114,12 +112,12 @@ export const AuthService = {
     const otp = crypto.randomInt(100000, 999999).toString();
     admin.resetPasswordOTP = otp;
     admin.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
-    console.log('otp', otp);
 
     await AdminRepository.saveAdmin(admin);
 
     const sendWithRetry = async (task: () => Promise<void>, maxRetries = 3) => {
       for (let attempt = 0; attempt < maxRetries; attempt++) {
+
         try {
           await new Promise(resolve => setTimeout(resolve, attempt * 1000)); // 0s, 1s, 2s delays
           await task();

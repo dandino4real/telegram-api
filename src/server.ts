@@ -20,7 +20,7 @@ const app = express();
 // Load environment variables FIRST
 dotenv.config({
   path:
-    process.env.NODE_ENV === "production" ? ".env.production" : ".env.local",
+    process.env.NODE_ENV === "production" ? ".env.production" : ".env",
 });
 
 
@@ -52,11 +52,12 @@ app.use(cookieParser());
 
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
-  : ["https://your-frontend.vercel.app"];
+  : ["https://afibie-fx.vercel.app"];
 
 app.use(
   cors({
     origin: corsOrigins,
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   })
