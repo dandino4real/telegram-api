@@ -29,7 +29,7 @@ export const AuthController = {
 
       // Determine domain based on environment
       const isProduction = process.env.NODE_ENV === "production";
-      const cookieDomain = isProduction ? "https://afibie-fx.vercel.app" : undefined;
+      const cookieDomain = isProduction ? ".vercel.app" : undefined;
 
       // Configure cookie options
       const cookieOptions = {

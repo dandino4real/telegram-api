@@ -54,7 +54,7 @@ app.use(cookieParser());
 
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
-  : [".vercel.app"];
+  : ["https://afibie-fx.vercel.app"];
 
 app.use(
   cors({
