@@ -13,6 +13,12 @@ export const AuthController = {
 
       const { id, accessToken, refreshToken } = await AuthService.login(email, password, req);
 
+      console.log("Setting refreshToken cookie:", {
+        refreshToken,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+      });
+
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
