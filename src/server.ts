@@ -59,7 +59,7 @@ const corsOrigins = process.env.CORS_ORIGINS
 app.use(
   cors({
     origin: corsOrigins,
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   })
