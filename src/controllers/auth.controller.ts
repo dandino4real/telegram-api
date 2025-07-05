@@ -19,12 +19,27 @@ export const AuthController = {
         sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       });
 
-      res.cookie("refreshToken", refreshToken, {
+      // res.cookie("refreshToken", refreshToken, {
+      //   httpOnly: true,
+      //   secure: process.env.NODE_ENV === "production",
+      //   sameSite:process.env.NODE_ENV === "production" ? "none" : "strict",
+      //   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      // });
+
+
+      // Determine domain based on environment
+      const isProduction = process.env.NODE_ENV === "production";
+      const cookieDomain = isProduction ? ".vercel.app" : undefined;
+
+      // Configure cookie options
+      const cookieOptions = {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite:process.env.NODE_ENV === "production" ? "none" : "strict",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax" as const,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        domain: cookieDomain
+      };
+
 
       return res.status(200).json({
         message: "Login successful",
