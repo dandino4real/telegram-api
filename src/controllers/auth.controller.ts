@@ -35,10 +35,12 @@ export const AuthController = {
       const cookieOptions = {
         httpOnly: true,
         secure: isProduction,
-        sameSite: isProduction ? "none" : "lax" as const,
+        sameSite: isProduction ? "none" as "none" : "lax" as "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
         domain: cookieDomain
       };
+
+      res.cookie("refreshToken", refreshToken, cookieOptions);
 
 
       return res.status(200).json({
