@@ -26,10 +26,12 @@ dotenv.config({
 
 // Add debug log for environment variables
 console.log("Environment variables loaded:");
+console.log("CORS_ORIGINS:", process.env.CORS_ORIGINS || "Not set");
 console.log("BOT_TOKEN_CRYPTO:", process.env.BOT_TOKEN_CRYPTO ? "exists" : "MISSING");
 console.log("BOT_TOKEN_FOREX:", process.env.BOT_TOKEN_FOREX ? "exists" : "MISSING");
 console.log("VERCEL_URL:", process.env.VERCEL_URL || "Not set");
 console.log("MONGODB_URI:", process.env.MONGODB_URI ? "exists" : "MISSING");
+console.log("WEBHOOK_SECRET:", process.env.WEBHOOK_SECRET ? "exists" : "MISSING");
 
 // Validate critical environment variables
 const requiredEnvVars = [
@@ -50,52 +52,52 @@ app.use(helmet());
 app.use(express.json());
 app.use(cookieParser());
 
-// const corsOrigins = process.env.CORS_ORIGINS
-//   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
-//   : ["https://afibie-fx.vercel.app"];
-
-// app.use(
-//   cors({
-//     origin: corsOrigins,
-//     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-//     credentials: true,
-//     allowedHeaders: ["Content-Type", "Authorization"],
-//   })
-// );
-
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
   : ["https://afibie-fx.vercel.app"];
 
-// Explicitly handle CORS preflight
-app.options("*", cors({
-  origin: (origin, callback) => {
-    if (!origin || corsOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
-
 app.use(
   cors({
-    origin: (origin, callback) => {
-      console.log("CORS - Origin:", origin); // Debug
-      if (!origin || corsOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: corsOrigins,
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
-    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// const corsOrigins = process.env.CORS_ORIGINS
+//   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
+//   : ["https://afibie-fx.vercel.app"];
+
+// // Explicitly handle CORS preflight
+// app.options("*", cors({
+//   origin: (origin, callback) => {
+//     if (!origin || corsOrigins.includes(origin)) {
+//       callback(null, true);
+//     } else {
+//       callback(new Error("Not allowed by CORS"));
+//     }
+//   },
+//   credentials: true,
+//   methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+//   allowedHeaders: ["Content-Type", "Authorization"],
+// }));
+
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       console.log("CORS - Origin:", origin); // Debug
+//       if (!origin || corsOrigins.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
 
 // Debug middleware
 app.use((req, res, next) => {
