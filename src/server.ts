@@ -336,7 +336,6 @@
 
 // export default app;
 
-
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -435,11 +434,11 @@ cryptoBotHandler(cryptoBot);
 forexBotHandler(forexBot);
 
 const setupBots = async () => {
-  // Use the production URL directly, avoiding VERCEL_URL issues
+  // Hardcode production URL to avoid VERCEL_URL issues
   const baseUrl = "https://telegram-api-k5mk.vercel.app";
   console.log(`Setting webhooks for base URL: ${baseUrl}`);
   try {
-    new URL(baseUrl);
+    new URL(baseUrl); // Validate URL
     const cryptoWebhook = `${baseUrl}/webhook/crypto`;
     console.log(`Setting crypto webhook to: ${cryptoWebhook}`);
     await cryptoBot.telegram.setWebhook(cryptoWebhook, {
