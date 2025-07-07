@@ -337,7 +337,6 @@
 // export default app;
 
 
-
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -436,9 +435,8 @@ cryptoBotHandler(cryptoBot);
 forexBotHandler(forexBot);
 
 const setupBots = async () => {
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL.replace(/[^a-zA-Z0-9.-]/g, '')}`
-    : "https://telegram-api-k5mk.vercel.app";
+  // Use the production URL directly, avoiding VERCEL_URL issues
+  const baseUrl = "https://telegram-api-k5mk.vercel.app";
   console.log(`Setting webhooks for base URL: ${baseUrl}`);
   try {
     new URL(baseUrl);
@@ -556,6 +554,21 @@ app.get("/health", (req, res) => {
     },
     initialized: isInitialized,
   });
+});
+
+// Graceful shutdown
+process.once("SIGINT", async () => {
+  console.log("SIGINT received. Shutting down gracefully...");
+  await cryptoBot.stop("SIGINT");
+  await forexBot.stop("SIGTERM");
+  process.exit(0);
+});
+
+process.once("SIGTERM", async () => {
+  console.log("SIGTERM received. Shutting down gracefully...");
+  await cryptoBot.stop("SIGTERM");
+  await forexBot.stop("SIGTERM");
+  process.exit(0);
 });
 
 // Error handling middleware
