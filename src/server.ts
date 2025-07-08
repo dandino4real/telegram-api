@@ -58,49 +58,13 @@ const corsOrigins = process.env.CORS_ORIGINS
 
 app.use(
   cors({
-    // origin: corsOrigins,
-    origin:"https://afibie-fx.vercel.app",
+    origin: corsOrigins,
+    // origin:"https://afibie-fx.vercel.app",
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
-    exposedHeaders: ["Set-Cookie"],
-    preflightContinue: true
+    allowedHeaders: ["Content-Type", "Authorization", "X-Refresh-Token"],
   })
 );
-
-// const corsOrigins = process.env.CORS_ORIGINS
-//   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
-//   : ["https://afibie-fx.vercel.app"];
-
-// // Explicitly handle CORS preflight
-// app.options("*", cors({
-//   origin: (origin, callback) => {
-//     if (!origin || corsOrigins.includes(origin)) {
-//       callback(null, true);
-//     } else {
-//       callback(new Error("Not allowed by CORS"));
-//     }
-//   },
-//   credentials: true,
-//   methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-//   allowedHeaders: ["Content-Type", "Authorization"],
-// }));
-
-// app.use(
-//   cors({
-//     origin: (origin, callback) => {
-//       console.log("CORS - Origin:", origin); // Debug
-//       if (!origin || corsOrigins.includes(origin)) {
-//         callback(null, true);
-//       } else {
-//         callback(new Error("Not allowed by CORS"));
-//       }
-//     },
-//     credentials: true,
-//     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-//     allowedHeaders: ["Content-Type", "Authorization"],
-//   })
-// );
 
 // Debug middleware
 app.use((req, res, next) => {
