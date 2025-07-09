@@ -42,7 +42,7 @@ bot.use(async (ctx, next) => {
   if (!ctx.session) {
     ctx.session = {
       step: 'welcome',
-      botType: ctx.botType || 'crypto' // or 'forex'
+      botType: ctx.botType || 'crypto' 
     };
   }
   return next();
@@ -445,6 +445,22 @@ bot.use(async (ctx, next) => {
 
     await sendAdminAlertCrypto(user);
   }
+
+
+
+bot.on("video", async (ctx) => {
+  try {
+    const fileId = ctx.message.video.file_id;
+    console.log("🎥 Received video with file_id:", fileId);
+    await ctx.reply(`✅ Video received!\nFile ID:\n\`${fileId}\``, { parse_mode: "Markdown" });
+  } catch (error) {
+    console.error("Error handling video:", error);
+  }
+});
+
+
+
+
 
   // Start watching for status changes
   watchUserStatusChanges();
