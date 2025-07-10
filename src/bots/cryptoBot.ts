@@ -528,13 +528,7 @@
 
 
 
-
-
-
-
-
-
-import { Telegraf, Markup } from "telegraf";
+import { Telegraf, Markup, Context } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
 import { sendAdminAlertCrypto } from "../utils/services/notifier-crypto";
@@ -543,15 +537,37 @@ import { isValidUID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import mongoose from "mongoose";
 import { session } from "telegraf-session-mongodb";
-import { BotContext } from "../telegrafContext";
 import dotenv from "dotenv";
+
+// Define SessionData interface for type safety
+interface SessionData {
+  step: string;
+  botType: string;
+  captcha?: string;
+  country?: string;
+  bybitUid?: string;
+  blofinUid?: string;
+  requiresBoth?: boolean;
+  createdAt?: number; // Timestamp for session creation
+}
+
+// Extend Context to include session with optional __store for MongoDB
+interface BotContext extends Context {
+  session: SessionData & {
+    __store?: {
+      saveSession: (key: string, session: SessionData) => Promise<void>;
+      __key?: string;
+    };
+  };
+}
 
 dotenv.config();
 
-// Export as default function that receives bot instance
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
 
 export default function (bot: Telegraf<BotContext>) {
+  let useMongoDB = true;
+
   // MongoDB session setup
   if (mongoose.connection.readyState === 1) {
     const db = mongoose.connection.db;
@@ -563,24 +579,66 @@ export default function (bot: Telegraf<BotContext>) {
         })
       );
       console.log("✅ Crypto Bot MongoDB session connected");
+
+      // Set up MongoDB TTL index for session expiration (7 days)
+      db.collection("crypto_sessions")
+        .createIndex({ "session.createdAt": 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 })
+        .catch((err) => console.error("❌ Error creating TTL index:", err));
     } else {
-      console.error(
-        "❌ Mongoose connected but db is undefined. Crypto session middleware skipped"
-      );
+      console.error("❌ Mongoose connected but db is undefined. Falling back to in-memory sessions.");
+      useMongoDB = false;
     }
   } else {
-    console.error(
-      "❌ Mongoose not connected. Crypto session middleware skipped"
-    );
+    console.error("❌ Mongoose not connected. Falling back to in-memory sessions.");
+    useMongoDB = false;
+  }
+
+  // Helper function to save session with retries
+  async function saveSessionWithRetry(ctx: BotContext, retries = 3, delay = 1000): Promise<boolean> {
+    if (!useMongoDB) {
+      console.log(`[DEBUG] Using in-memory session for user ${ctx.from?.id}`);
+      return true;
+    }
+    if (!ctx.session.__store || !ctx.session.__store.saveSession) {
+      console.error(`[ERROR] Session store not available for user ${ctx.from?.id}`);
+      useMongoDB = false;
+      return false;
+    }
+    for (let i = 0; i < retries; i++) {
+      try {
+        // @ts-ignore: __store is not typed in telegraf-session-mongodb
+        await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+        console.log(`[DEBUG] Session saved for user ${ctx.from?.id} (attempt ${i + 1})`);
+        return true;
+      } catch (error) {
+        console.error(`[ERROR] Failed to save session for user ${ctx.from?.id} (attempt ${i + 1}):`, error);
+        if (i < retries - 1) await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    console.error(`[ERROR] Failed to save session after ${retries} attempts for user ${ctx.from?.id}`);
+    return false;
   }
 
   // Initialize session with default values
   bot.use(async (ctx, next) => {
+    console.log(`[DEBUG] Processing update for user ${ctx.from?.id}, session:`, ctx.session);
     if (!ctx.session) {
       ctx.session = {
         step: "idle",
         botType: "crypto",
+        createdAt: Date.now(),
       };
+      console.log(`[DEBUG] Initialized new session for user ${ctx.from?.id}:`, ctx.session);
+      if (useMongoDB) {
+        const saved = await saveSessionWithRetry(ctx);
+        if (!saved) {
+          useMongoDB = false;
+          await ctx.replyWithHTML(
+            `⚠️ <b>Server issue detected.</b>\n\n` +
+              `Please try again or type <b>/start</b> to restart.`
+          );
+        }
+      }
     }
     return next();
   });
@@ -604,9 +662,7 @@ export default function (bot: Telegraf<BotContext>) {
       const isBybit = !!user.bybitUid;
       const uidType = isBybit ? "Bybit" : "Blofin";
       const userUid = isBybit ? user.bybitUid : user.blofinUid;
-      const registerLink = isBybit
-        ? process.env.BYBIT_LINK
-        : process.env.BLOFIN_LINK;
+      const registerLink = isBybit ? process.env.BYBIT_LINK : process.env.BLOFIN_LINK;
 
       const caption =
         `<b>🚫 Application Rejected</b>\n\n` +
@@ -626,9 +682,7 @@ export default function (bot: Telegraf<BotContext>) {
             parse_mode: "HTML",
           });
         } else {
-          await bot.telegram.sendMessage(user.telegramId, caption, {
-            parse_mode: "HTML",
-          });
+          await bot.telegram.sendMessage(user.telegramId, caption, { parse_mode: "HTML" });
         }
       } catch (error) {
         console.error("Error sending rejection message:", error);
@@ -638,14 +692,9 @@ export default function (bot: Telegraf<BotContext>) {
 
   // Watch for status changes in MongoDB
   async function watchUserStatusChanges() {
-    const changeStream = CryptoUserModel.watch([], {
-      fullDocument: "updateLookup",
-    });
+    const changeStream = CryptoUserModel.watch([], { fullDocument: "updateLookup" });
     changeStream.on("change", (change) => {
-      if (
-        change.operationType === "update" &&
-        change.updateDescription.updatedFields?.status
-      ) {
+      if (change.operationType === "update" && change.updateDescription.updatedFields?.status) {
         notifyUserOnStatusChange(change);
       }
     });
@@ -654,17 +703,27 @@ export default function (bot: Telegraf<BotContext>) {
   const getLinkLimiter = rateLimit({
     window: 60_000,
     limit: 3,
-    onLimitExceeded: (ctx: any) =>
-      ctx.reply("🚫 Too many link requests! Try again later."),
+    onLimitExceeded: (ctx: any) => ctx.reply("🚫 Too many link requests! Try again later."),
   });
 
   bot.start(async (ctx) => {
-    // Reset session but preserve existing data if available
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+
     ctx.session = {
-      ...ctx.session,
       step: "welcome",
       botType: "crypto",
+      createdAt: Date.now(),
     };
+    console.log(`[DEBUG] /start command - Session reset for user ${userId}:`, ctx.session);
+    const saved = await saveSessionWithRetry(ctx);
+    if (!saved) {
+      useMongoDB = false;
+      await ctx.replyWithHTML(
+        `⚠️ <b>Server issue detected.</b>\n\n` +
+          `Please try again or type <b>/start</b> to restart.`
+      );
+    }
 
     await ctx.replyWithHTML(
       `<b>🛠 Welcome to <u>Afibie Crypto Signals</u>! 🚀</b>\n\n` +
@@ -675,14 +734,13 @@ export default function (bot: Telegraf<BotContext>) {
         `✅ <b>Step 3:</b> Register on <b>Bybit</b> / <b>Blofin</b> and provide your <b>Login UID</b> \n` +
         `✅ <b>Step 4:</b> Wait for Verification ⏳\n\n` +
         `👉 <b>Click the <b>Continue</b> button to start:</b>`,
-      Markup.inlineKeyboard([
-        Markup.button.callback("🔵 CONTINUE", "continue_to_captcha"),
-      ])
+      Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_captcha")])
     );
   });
 
   // Resume conversation where user left off
   bot.command("resume", async (ctx) => {
+    console.log(`[DEBUG] /resume command - Session for user ${ctx.from?.id}:`, ctx.session);
     if (!ctx.session.step || ctx.session.step === "idle") {
       await ctx.reply("You don't have an active session. Use /start to begin.");
       return;
@@ -692,23 +750,19 @@ export default function (bot: Telegraf<BotContext>) {
       case "welcome":
         await ctx.replyWithHTML(
           "Welcome back! Please continue where you left off.",
-          Markup.inlineKeyboard([
-            Markup.button.callback("🔵 CONTINUE", "continue_to_captcha"),
-          ])
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_captcha")])
         );
         break;
       case "captcha":
         await ctx.replyWithHTML(
           `🔐 Please solve the Captcha:\n\n` +
-            `👉 <b>Type this number:</b> <code>${ctx.session.captcha}</code>`
+            `👉 <b>Type this number:</b> <code>${ctx.session.captcha || "Not set"}</code>`
         );
         break;
       case "country":
         await ctx.replyWithHTML(
           `🌍 What is your country of residence?`,
-          Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]])
-            .oneTime()
-            .resize()
+          Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]]).oneTime().resize()
         );
         break;
       case "bybit_uid":
@@ -727,29 +781,51 @@ export default function (bot: Telegraf<BotContext>) {
         break;
       case "final_confirmation":
         const details = ctx.session.requiresBoth
-          ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${
-              ctx.session.blofinUid || "Not provided"
-            }`
+          ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${ctx.session.blofinUid || "Not provided"}`
           : `Blofin UID: ${ctx.session.blofinUid || "Not provided"}`;
         await ctx.replyWithHTML(
           `<b>✅ Ready to submit</b>\n\n` +
             `📌 <b>Your Details:</b>\n` +
             `${details}\n\n` +
             `👉 Click <b>Confirm</b> to submit`,
-          Markup.inlineKeyboard([
-            Markup.button.callback("🔵 CONFIRM", "confirm_final"),
-          ])
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
+        );
+        break;
+      case "pending_approval":
+        await ctx.replyWithHTML(
+          `⏳ Your registration is under review. You'll be notified once approved.\n\n` +
+            `Use <b>/getlink</b> after approval to get your invite link.`
         );
         break;
       default:
-        await ctx.reply("Your session has expired. Use /start to begin again.");
+        console.log(`[DEBUG] Invalid session step in /resume for user ${ctx.from?.id}:`, ctx.session.step);
         ctx.session.step = "idle";
+        await saveSessionWithRetry(ctx);
+        await ctx.reply("Your session has expired. Use /start to begin again.");
     }
   });
 
   bot.action("continue_to_captcha", async (ctx) => {
+    if (!ctx.session || ctx.session.step !== "welcome") {
+      console.log(`[DEBUG] continue_to_captcha - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please start the registration process.</b>\n\n` +
+          `Type <b>/start</b> to begin.`
+      );
+      return;
+    }
+
     ctx.session.step = "captcha";
     ctx.session.captcha = generateCaptcha();
+    console.log(`[DEBUG] continue_to_captcha - Set session for user ${ctx.from?.id}:`, ctx.session);
+    const saved = await saveSessionWithRetry(ctx);
+    if (!saved) {
+      useMongoDB = false;
+      await ctx.replyWithHTML(
+        `⚠️ <b>Server issue detected.</b>\n\n` +
+          `Please try again or type <b>/start</b> to restart.`
+      );
+    }
 
     await ctx.replyWithHTML(
       `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
@@ -762,10 +838,7 @@ export default function (bot: Telegraf<BotContext>) {
     const tgId = ctx.from?.id?.toString();
     if (!tgId) return;
 
-    const user = await CryptoUserModel.findOne({
-      telegramId: tgId,
-      botType: "crypto",
-    });
+    const user = await CryptoUserModel.findOne({ telegramId: tgId, botType: "crypto" });
     if (!user || user.status !== "approved") {
       await ctx.replyWithHTML(
         `<b>⚠️ Access Denied</b>\n\n` +
@@ -776,13 +849,10 @@ export default function (bot: Telegraf<BotContext>) {
     }
 
     try {
-      const inviteLink = await bot.telegram.createChatInviteLink(
-        process.env.GROUP_CHAT_ID!,
-        {
-          expire_date: Math.floor(Date.now() / 1000) + 1800,
-          member_limit: 1,
-        }
-      );
+      const inviteLink = await bot.telegram.createChatInviteLink(process.env.GROUP_CHAT_ID!, {
+        expire_date: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+        member_limit: 1,
+      });
       await ctx.replyWithHTML(
         `<b>🎉 Access Granted!</b>\n\n` +
           `🔗 <b>Your Exclusive Group Link:</b>\n` +
@@ -800,21 +870,57 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.on(message("text"), async (ctx) => {
     const text = ctx.message.text.trim();
+    console.log(`[DEBUG] Text message received from user ${ctx.from?.id}: "${text}", session:`, ctx.session);
+
+    if (!ctx.session || !ctx.session.step || !["captcha", "country", "bybit_uid", "blofin_uid", "final_confirmation"].includes(ctx.session.step)) {
+      console.log(`[DEBUG] Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      ctx.session = {
+        step: "idle",
+        botType: "crypto",
+        createdAt: Date.now(),
+      };
+      await saveSessionWithRetry(ctx);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Session expired or invalid.</b>\n\n` +
+          `Please type <b>/start</b> to begin the registration process.`
+      );
+      return;
+    }
 
     switch (ctx.session.step) {
       case "captcha": {
-        if (ctx.session.captcha && verifyCaptcha(text, ctx.session.captcha)) {
+        if (!ctx.session.captcha) {
+          ctx.session.captcha = generateCaptcha();
+          console.log(`[DEBUG] Generated new captcha for user ${ctx.from?.id}:`, ctx.session.captcha);
+          await saveSessionWithRetry(ctx);
+          await ctx.replyWithHTML(
+            `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
+              `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
+              `👉 <b>Type this number:</b> <code>${ctx.session.captcha}</code>`
+          );
+          return;
+        }
+        if (verifyCaptcha(text, ctx.session.captcha)) {
           ctx.session.step = "captcha_confirmed";
+          console.log(`[DEBUG] Captcha verified for user ${ctx.from?.id}, new session:`, ctx.session);
+          const saved = await saveSessionWithRetry(ctx);
+          if (!saved) {
+            useMongoDB = false;
+            await ctx.replyWithHTML(
+              `⚠️ <b>Server issue detected.</b>\n\n` +
+                `Please try again or type <b>/start</b> to restart.`
+            );
+          }
           await ctx.replyWithHTML(
             `✅ <b>Correct!</b>\n\n` +
               `You've passed the captcha verification.\n\n` +
               `👉 Click the <b>Continue</b> button to proceed to country selection.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_country"),
-            ])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_country")])
           );
         } else {
           ctx.session.captcha = generateCaptcha();
+          console.log(`[DEBUG] Incorrect captcha for user ${ctx.from?.id}, new captcha:`, ctx.session.captcha);
+          await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `❌ <b>Incorrect Captcha</b>\n\n` +
               `🚫 Please try again:\n` +
@@ -827,39 +933,31 @@ export default function (bot: Telegraf<BotContext>) {
       case "country": {
         const normalized = text.trim().toLowerCase();
         ctx.session.country = text;
-        const isUSA = [
-          "usa",
-          "us",
-          "united states",
-          "united states of america",
-        ].includes(normalized);
-        const isUK = [
-          "uk",
-          "united kingdom",
-          "england",
-          "great britain",
-        ].includes(normalized);
+        const isUSA = ["usa", "us", "united states", "united states of america"].includes(normalized);
+        const isUK = ["uk", "united kingdom", "england", "great britain"].includes(normalized);
         const isCanada = ["canada"].includes(normalized);
 
         if (isUSA || isUK || isCanada) {
           ctx.session.step = "blofin_confirmed";
           ctx.session.requiresBoth = false;
+          console.log(`[DEBUG] Country selected for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>🌍 Country Selected: ${text}</b>\n\n` +
+              `You've chosen your country.\n\n` +
               `👉 Click the <b>Continue</b> button to proceed with Blofin registration.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_blofin"),
-            ])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_blofin")])
           );
         } else {
           ctx.session.step = "bybit_confirmed";
           ctx.session.requiresBoth = true;
+          console.log(`[DEBUG] Country selected for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>🌍 Country Selected: ${text}</b>\n\n` +
+              `You've chosen your country.\n\n` +
               `👉 Click the <b>Continue</b> button to proceed with Bybit registration.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_bybit"),
-            ])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_bybit")])
           );
         }
         break;
@@ -877,23 +975,24 @@ export default function (bot: Telegraf<BotContext>) {
         ctx.session.bybitUid = text;
         if (ctx.session.requiresBoth) {
           ctx.session.step = "blofin_confirmed";
+          console.log(`[DEBUG] Bybit UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>✅ Bybit UID Submitted</b>\n\n` +
+              `You've provided your Bybit UID.\n\n` +
               `👉 Click the <b>Continue</b> button to proceed with Blofin registration.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_blofin"),
-            ])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_blofin")])
           );
         } else {
           ctx.session.step = "final_confirmation";
+          console.log(`[DEBUG] Bybit UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>Final Confirmation</b>\n\n` +
               `📌 <b>Your Details:</b>\n` +
               `Blofin UID: ${ctx.session.blofinUid || "Not provided"}\n\n` +
-              `👉 Click the <b>Confirm</b> button to submit.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONFIRM", "confirm_final"),
-            ])
+              `👉 Click the <b>Confirm</b> button to submit your details.`,
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
           );
         }
         break;
@@ -910,40 +1009,205 @@ export default function (bot: Telegraf<BotContext>) {
         }
         ctx.session.blofinUid = text;
         ctx.session.step = "final_confirmation";
+        console.log(`[DEBUG] Blofin UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+        await saveSessionWithRetry(ctx);
         const details = ctx.session.requiresBoth
-          ? `Bybit UID: ${ctx.session.bybitUid}\nBlofin UID: ${ctx.session.blofinUid}`
-          : `Blofin UID: ${ctx.session.blofinUid}`;
+          ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${ctx.session.blofinUid || "Not provided"}`
+          : `Blofin UID: ${ctx.session.blofinUid || "Not provided"}`;
         await ctx.replyWithHTML(
           `<b>✅ Blofin UID Submitted</b>\n\n` +
+            `Final Confirmation\n\n` +
             `📌 <b>Your Details:</b>\n` +
             `${details}\n\n` +
-            `👉 Click the <b>Confirm</b> button to submit.`,
-          Markup.inlineKeyboard([
-            Markup.button.callback("🔵 CONFIRM", "confirm_final"),
-          ])
+            `👉 Click the <b>Confirm</b> button to submit your details.`,
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
+        );
+        break;
+      }
+
+      case "final_confirmation": {
+        const details = ctx.session.requiresBoth
+          ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${ctx.session.blofinUid || "Not provided"}`
+          : `Blofin UID: ${ctx.session.blofinUid || "Not provided"}`;
+        await ctx.replyWithHTML(
+          `<b>Final Confirmation</b>\n\n` +
+            `📌 <b>Your Details:</b>\n` +
+            `${details}\n\n` +
+            `👉 Click the <b>Confirm</b> button to submit your details.`,
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
         );
         break;
       }
     }
   });
 
-  // ... (other action handlers remain mostly the same, just use ctx.session)
+  bot.action("continue_to_country", async (ctx) => {
+    if (!ctx.session || ctx.session.step !== "captcha_confirmed") {
+      console.log(`[DEBUG] continue_to_country - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `Type <b>/start</b> to restart.`
+      );
+      return;
+    }
+
+    ctx.session.step = "country";
+    console.log(`[DEBUG] continue_to_country - Set session for user ${ctx.from?.id}:`, ctx.session);
+    await saveSessionWithRetry(ctx);
+    await ctx.replyWithHTML(
+      `<b>🚀 Step 2: Country Selection</b>\n\n` +
+        `🌍 What is your country of residence?`,
+      Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]]).oneTime().resize()
+    );
+  });
+
+  bot.action("continue_to_bybit", async (ctx) => {
+    if (!ctx.session || ctx.session.step !== "bybit_confirmed") {
+      console.log(`[DEBUG] continue_to_bybit - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `Type <b>/start</b> to restart.`
+      );
+      return;
+    }
+
+    ctx.session.step = "bybit_link";
+    console.log(`[DEBUG] continue_to_bybit - Set session for user ${ctx.from?.id}:`, ctx.session);
+    await saveSessionWithRetry(ctx);
+
+    if (!VIDEO_FILE_ID) {
+      await ctx.replyWithHTML(
+        `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
+          `\n\n<b>✅ Once done, click the "Done" button below to continue.</b>`,
+        Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
+      );
+      return;
+    }
+
+    try {
+      await ctx.replyWithVideo(VIDEO_FILE_ID, {
+        caption:
+          `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `✅ Watch the video above to learn how to register properly and gain access.` +
+          `✅ Once done, click the <b>Done</b> button to continue.`,
+        parse_mode: "HTML",
+        reply_markup: Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")]).reply_markup,
+      });
+    } catch (error) {
+      console.error("Error sending video:", error);
+      await ctx.replyWithHTML(
+        `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `❌ Video unavailable. Please try again later or contact support.\n\n` +
+          `✅ Once done, click the <b>Done</b> button to continue.`,
+        Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
+      );
+    }
+  });
+
+  bot.action("continue_to_blofin", async (ctx) => {
+    if (!ctx.session || ctx.session.step !== "blofin_confirmed") {
+      console.log(`[DEBUG] continue_to_blofin - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `Type <b>/start</b> to restart.`
+      );
+      return;
+    }
+
+    ctx.session.step = "blofin_link";
+    console.log(`[DEBUG] continue_to_blofin - Set session for user ${ctx.from?.id}:`, ctx.session);
+    await saveSessionWithRetry(ctx);
+    await ctx.replyWithHTML(
+      `<b>🚀 Step 3: Blofin Registration</b>\n\n` +
+        `<b>Why Blofin?</b>\n` +
+        `🌍 <i>Global Access</i> - <u>No KYC required!</u>\n\n` +
+        `📌 <b>Sign up here</b> 👉 <a href="${process.env.BLOFIN_LINK}">Blofin Registration Link</a>\n\n` +
+        `✅ After registering, click the <b>Done</b> button to continue.`,
+      Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_blofin")])
+    );
+  });
+
+  bot.action("done_bybit", async (ctx) => {
+    if (!ctx.session || ctx.session.step !== "bybit_link") {
+      console.log(`[DEBUG] done_bybit - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `Type <b>/start</b> to restart.`
+      );
+      return;
+    }
+
+    ctx.session.step = "bybit_uid";
+    console.log(`[DEBUG] done_bybit - Set session for user ${ctx.from?.id}:`, ctx.session);
+    await saveSessionWithRetry(ctx);
+    await ctx.replyWithHTML(
+      `<b>🔹 Submit Your Bybit UID</b>\n\n` +
+        `Please enter your <b>Bybit UID</b> below to proceed.\n\n` +
+        `💡 <i>You can find your UID in the account/profile section of the Bybit app or website.</i>\n\n` +
+        `📌 <b>Example:</b> <code>12345678</code>`
+    );
+  });
+
+  bot.action("done_blofin", async (ctx) => {
+    if (!ctx.session || ctx.session.step !== "blofin_link") {
+      console.log(`[DEBUG] done_blofin - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `Type <b>/start</b> to restart.`
+      );
+      return;
+    }
+
+    ctx.session.step = "blofin_uid";
+    console.log(`[DEBUG] done_blofin - Set session for user ${ctx.from?.id}:`, ctx.session);
+    await saveSessionWithRetry(ctx);
+    await ctx.replyWithHTML(
+      `<b>🔹 Submit Your Blofin UID</b>\n\n` +
+        `Please enter your <b>Blofin UID</b> below to continue.\n\n` +
+        `💡 <i>You can find your UID in the account section of the Blofin platform after logging in.</i>\n\n` +
+        `📌 <b>Example:</b> <code>87654321</code>`
+    );
+  });
 
   bot.action("confirm_final", async (ctx) => {
-    if (ctx.session.step !== "final_confirmation") return;
+    if (!ctx.session || ctx.session.step !== "final_confirmation") {
+      console.log(`[DEBUG] confirm_final - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `Type <b>/start</b> to restart.`
+      );
+      return;
+    }
 
     ctx.session.step = "final";
+    console.log(`[DEBUG] confirm_final - Set session for user ${ctx.from?.id}:`, ctx.session);
+    await saveSessionWithRetry(ctx);
     await saveAndNotify(ctx);
   });
 
-  async function saveAndNotify(ctx: any) {
+  async function saveAndNotify(ctx: BotContext) {
+    if (!ctx.from) {
+      console.error("ctx.from is undefined in saveAndNotify");
+      return;
+    }
     const telegramId = ctx.from.id.toString();
     const updatePayload: Partial<ICRYPTO_User> = {
       telegramId,
       username: ctx.from.username,
-      fullName: `${ctx.from.first_name || ""} ${
-        ctx.from.last_name || ""
-      }`.trim(),
+      fullName: `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim(),
       botType: "crypto",
       country: ctx.session.country,
       status: "pending",
@@ -965,6 +1229,7 @@ export default function (bot: Telegraf<BotContext>) {
       updatePayload,
       { upsert: true, new: true }
     );
+    console.log(`[DEBUG] User data saved for user ${telegramId}:`, user);
 
     await ctx.replyWithHTML(
       `<b>✅ Submission Successful!</b>\n\n` +
@@ -978,18 +1243,101 @@ export default function (bot: Telegraf<BotContext>) {
     ctx.session.bybitUid = undefined;
     ctx.session.blofinUid = undefined;
     ctx.session.step = "pending_approval";
+    await saveSessionWithRetry(ctx);
 
     await sendAdminAlertCrypto(user);
   }
 
+  // Handle non-command messages when session exists
+  bot.on(message("text"), async (ctx) => {
+    if (!ctx.session || !ctx.session.step) {
+      console.log(`[DEBUG] No session or step for user ${ctx.from?.id}:`, ctx.session);
+      ctx.session = {
+        step: "idle",
+        botType: "crypto",
+        createdAt: Date.now(),
+      };
+      await saveSessionWithRetry(ctx);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please start the registration process.</b>\n\n` +
+          `Type <b>/start</b> to begin.`
+      );
+      return;
+    }
+
+    // Prompt user to continue based on their current step
+    switch (ctx.session.step) {
+      case "captcha":
+        if (!ctx.session.captcha) {
+          ctx.session.captcha = generateCaptcha();
+          console.log(`[DEBUG] Generated new captcha for user ${ctx.from?.id}:`, ctx.session.captcha);
+          await saveSessionWithRetry(ctx);
+        }
+        await ctx.replyWithHTML(
+          `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
+            `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
+            `👉 <b>Type this number:</b> <code>${ctx.session.captcha}</code>`
+        );
+        break;
+      case "country":
+        await ctx.replyWithHTML(
+          `<b>🚀 Step 2: Country Selection</b>\n\n` +
+            `🌍 What is your country of residence?`,
+          Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]]).oneTime().resize()
+        );
+        break;
+      case "bybit_uid":
+        await ctx.replyWithHTML(
+          `<b>🔹 Submit Your Bybit UID</b>\n\n` +
+            `Please enter your <b>Bybit UID</b> below to proceed.\n\n` +
+            `💡 <i>You can find your UID in the account/profile section of the Bybit app or website.</i>\n\n` +
+            `📌 <b>Example:</b> <code>12345678</code>`
+        );
+        break;
+      case "blofin_uid":
+        await ctx.replyWithHTML(
+          `<b>🔹 Submit Your Blofin UID</b>\n\n` +
+            `Please enter your <b>Blofin UID</b> below to continue.\n\n` +
+            `💡 <i>You can find your UID in the account section of the Blofin platform after logging in.</i>\n\n` +
+            `📌 <b>Example:</b> <code>87654321</code>`
+        );
+        break;
+      case "final_confirmation":
+        const details = ctx.session.requiresBoth
+          ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${ctx.session.blofinUid || "Not provided"}`
+          : `Blofin UID: ${ctx.session.blofinUid || "Not provided"}`;
+        await ctx.replyWithHTML(
+          `<b>Final Confirmation</b>\n\n` +
+            `📌 <b>Your Details:</b>\n` +
+            `${details}\n\n` +
+            `👉 Click the <b>Confirm</b> button to submit your details.`,
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
+        );
+        break;
+      case "pending_approval":
+        await ctx.replyWithHTML(
+          `⏳ Your registration is under review. You'll be notified once approved.\n\n` +
+            `Use <b>/getlink</b> after approval to get your invite link.`
+        );
+        break;
+      default:
+        console.log(`[DEBUG] Unhandled session step for user ${ctx.from?.id}:`, ctx.session.step);
+        ctx.session.step = "idle";
+        await saveSessionWithRetry(ctx);
+        await ctx.replyWithHTML(
+          `⚠️ <b>Please continue the registration process.</b>\n\n` +
+            `Type <b>/start</b> to restart if you're stuck.`
+        );
+        break;
+    }
+  });
+
   // Start watching for status changes
   watchUserStatusChanges();
 
+  // Error handler
   bot.catch((err, ctx) => {
-    console.error(
-      `🚨 Crypto Bot Error for update ${ctx.update.update_id}:`,
-      err
-    );
+    console.error(`🚨 Crypto Bot Error for update ${ctx.update.update_id}:`, err);
     ctx.reply("❌ An error occurred. Please try again later.");
   });
 }
