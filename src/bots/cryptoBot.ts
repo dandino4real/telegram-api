@@ -341,26 +341,22 @@ export default function (bot: Telegraf<BotContext>) {
     session.step = "bybit_link";
 
     const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
-    const CHANNEL_LINK = process.env.CHANNEL_LINK!;
-
-    if (!VIDEO_FILE_ID) {
+  
+  if (!VIDEO_FILE_ID) {
     await ctx.replyWithHTML(
       `<b>📈 Step 3: Bybit Registration</b>\n\n` +
       `<b>Why Bybit?</b>\n` +
       `📊 <i>Most Trustworthy Exchange</i>\n\n` +
       `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
       `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-      `✅ <a href="${CHANNEL_LINK}">Join our channel</a> to watch the video and learn how to register properly.\n\n` +
+      `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
       `✅ Once done, click the <b>Done</b> button to continue.`,
-      Markup.inlineKeyboard([
-        Markup.button.url("📺 Join Video Channel", CHANNEL_LINK),
-        Markup.button.callback("🔵 Done", "done_bybit")
-      ])
+      Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
     );
     return;
   }
 
-    try {
+  try {
     await ctx.replyWithVideo(VIDEO_FILE_ID, {
       caption:
         `<b>📈 Step 3: Bybit Registration</b>\n\n` +
@@ -368,11 +364,9 @@ export default function (bot: Telegraf<BotContext>) {
         `📊 <i>Most Trustworthy Exchange</i>\n\n` +
         `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
         `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-        `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
-        `👉 <a href="${CHANNEL_LINK}">Join our channel</a> if you can't see the video.`,
+        `✅ Watch the video above to learn how to register properly and gain access.`,
       parse_mode: "HTML",
       reply_markup: Markup.inlineKeyboard([
-        Markup.button.url("📺 Join Video Channel", CHANNEL_LINK),
         Markup.button.callback("🔵 Done", "done_bybit")
       ]).reply_markup,
     });
@@ -384,12 +378,9 @@ export default function (bot: Telegraf<BotContext>) {
       `📊 <i>Most Trustworthy Exchange</i>\n\n` +
       `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
       `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-      `✅ <a href="${CHANNEL_LINK}">Join our channel</a> to watch the video and learn how to register properly.\n\n` +
+      `❌ Video unavailable. Please try again later or contact support.\n\n` +
       `✅ Once done, click the <b>Done</b> button to continue.`,
-      Markup.inlineKeyboard([
-        Markup.button.url("📺 Join Video Channel", CHANNEL_LINK),
-        Markup.button.callback("🔵 Done", "done_bybit")
-      ])
+      Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
     );
   }
 
