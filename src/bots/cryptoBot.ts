@@ -13,6 +13,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Export as default function that receives bot instance
+
+const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
 export default function (bot: Telegraf<BotContext>) {
   // Add session setup at the BEGINNING
   if (mongoose.connection.readyState === 1) {
@@ -66,13 +68,48 @@ export default function (bot: Telegraf<BotContext>) {
         { parse_mode: "HTML" }
       );
     } else if (user.status === "rejected") {
-      await bot.telegram.sendMessage(
-        user.telegramId,
-        `<b>⚠️ Sorry, your registration was not approved.</b>\n\n` +
-          `<b>⚠️ Invalid bybit UID or blofin UID .</b>\n\n` +
-          `📩 Please contact an admin for assistance.`,
-        { parse_mode: "HTML" }
-      );
+      // await bot.telegram.sendMessage(
+      //   user.telegramId,
+      //   `<b>⚠️ Sorry, your registration was not approved.</b>\n\n` +
+      //     `<b>⚠️ Invalid bybit UID or blofin UID .</b>\n\n` +
+      //     `📩 Please contact an admin for assistance.`,
+      //   { parse_mode: "HTML" }
+      // );
+
+      //  const caption =
+      //     `<b>❌ Application Rejected</b>\n\n` +
+      //     `It looks like your Bybit UID <code>${user.bybitUid}</code> was not registered using our affiliate link.\n\n` +
+      //     `To proceed, please register a new Bybit account using our official link: 👉 <a href="${process.env.BYBIT_LINK}">Register Here</a>\n\n` +
+      //     `Once registered, click /start to begin again.\n\n` +
+      //     `Need help? Watch this step-by-step guide above.\n\n` +
+      //     `Thank you for understanding!`;
+
+      const caption =
+        `<b>🚫 Application Rejected</b>\n\n` +
+        `👤 <b>Your Bybit UID:</b> <code>${user.bybitUid}</code>\n` +
+        `⚠️ <i>This UID was not registered using our affiliate link.</i>\n\n` +
+        `<b>👉 What to do:</b>\n` +
+        `1️⃣ <b>Create a new Bybit account</b> using our official affiliate link below:\n` +
+        `<a href="${process.env.BYBIT_LINK}">🔗 Register Here</a>\n\n` +
+        `2️⃣ After registration, <b>click /start</b> to begin the process again.\n\n` +
+        `🎥 <b>Need help?</b> Watch the step-by-step guide in the video above.\n\n` +
+        `<i>Thank you for your understanding and cooperation!</i> 🙏`;
+
+      try {
+        if (VIDEO_FILE_ID) {
+          await bot.telegram.sendVideo(user.telegramId, VIDEO_FILE_ID, {
+            caption,
+            parse_mode: "HTML",
+          });
+        } else {
+          // fallback if video is missing
+          await bot.telegram.sendMessage(user.telegramId, caption, {
+            parse_mode: "HTML",
+          });
+        }
+      } catch (error) {
+        console.error("Error sending rejection message:", error);
+      }
     }
   }
 
@@ -105,7 +142,7 @@ export default function (bot: Telegraf<BotContext>) {
     userSession[userId] = { step: "welcome", botType: "crypto" };
 
     await ctx.replyWithHTML(
-      `<b>🛠 Welcome to <u>Afibie Crypto Signal Bot</u>! 🚀</b>\n\n` +
+      `<b>🛠 Welcome to <u>Afibie Crypto Signals</u>! 🚀</b>\n\n` +
         `📈 <i>Home of Exclusive Futures Trade Signals</i>\n\n` +
         `<b>To gain access, complete these steps:</b>\n\n` +
         `✅ <b>Step 1:</b> Solve the Captcha 🔢\n` +
@@ -340,62 +377,50 @@ export default function (bot: Telegraf<BotContext>) {
 
     session.step = "bybit_link";
 
-    const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
-  
-  if (!VIDEO_FILE_ID) {
-    await ctx.replyWithHTML(
-      `<b>📈 Step 3: Bybit Registration</b>\n\n` +
-      `<b>Why Bybit?</b>\n` +
-      `📊 <i>Most Trustworthy Exchange</i>\n\n` +
-      `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
-      `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-      `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
-      `✅ Once done, click the <b>Done</b> button to continue.`,
-      Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
-    );
-    return;
-  }
+    // const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
 
-  try {
-    await ctx.replyWithVideo(VIDEO_FILE_ID, {
-      caption:
+    if (!VIDEO_FILE_ID) {
+      await ctx.replyWithHTML(
         `<b>📈 Step 3: Bybit Registration</b>\n\n` +
-        `<b>Why Bybit?</b>\n` +
-        `📊 <i>Most Trustworthy Exchange</i>\n\n` +
-        `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
-        `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-        `✅ Watch the video above to learn how to register properly and gain access.`,
-      parse_mode: "HTML",
-      reply_markup: Markup.inlineKeyboard([
-        Markup.button.callback("🔵 Done", "done_bybit")
-      ]).reply_markup,
-    });
-  } catch (error) {
-    console.error("Error sending video:", error);
-    await ctx.replyWithHTML(
-      `<b>📈 Step 3: Bybit Registration</b>\n\n` +
-      `<b>Why Bybit?</b>\n` +
-      `📊 <i>Most Trustworthy Exchange</i>\n\n` +
-      `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
-      `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-      `❌ Video unavailable. Please try again later or contact support.\n\n` +
-      `✅ Once done, click the <b>Done</b> button to continue.`,
-      Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
-    );
-  }
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
+          `✅ Once done, click the <b>Done</b> button to continue.`,
+        Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
+      );
+      return;
+    }
 
-    // await ctx.replyWithHTML(
-    //   `<b>📈 Step 3: Bybit Registration</b>\n\n` +
-    //     `<b>Why Bybit?</b>\n` +
-    //     `📊 <i>Most Trustworthy Exchange</i>\n\n` +
-    //     `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
-    //     `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-    //     `🎥 Watch this <a href="${
-    //       process.env.BYBIT_VIDEO_LINK || "https://example.com/bybit-video"
-    //     }">video</a> to learn how to register properly and gain access.\n\n` +
-    //     `✅ Once done, click the <b>Done</b> button to continue.`,
-    //   Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
-    // );
+    try {
+      await ctx.replyWithVideo(VIDEO_FILE_ID, {
+        caption:
+          `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `✅ Watch the video above to learn how to register properly and gain access.` +
+          `✅ Once done, click the <b>Done</b> button to continue.`,
+        parse_mode: "HTML",
+        reply_markup: Markup.inlineKeyboard([
+          Markup.button.callback("🔵 Done", "done_bybit"),
+        ]).reply_markup,
+      });
+    } catch (error) {
+      console.error("Error sending video:", error);
+      await ctx.replyWithHTML(
+        `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `❌ Video unavailable. Please try again later or contact support.\n\n` +
+          `✅ Once done, click the <b>Done</b> button to continue.`,
+        Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
+      );
+    }
   });
 
   bot.action("continue_to_blofin", async (ctx) => {
