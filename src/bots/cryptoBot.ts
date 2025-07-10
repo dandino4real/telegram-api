@@ -526,6 +526,7 @@
 // }
 
 
+
 import { Telegraf, Markup, Context } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -572,10 +573,9 @@ export default function (bot: Telegraf<BotContext>) {
       console.log("✅ Crypto Bot MongoDB session connected");
 
       // Set up MongoDB TTL index for session expiration (7 days)
-      db.collection("crypto_sessions").createIndex(
-        { "session.createdAt": 1 },
-        { expireAfterSeconds: 7 * 24 * 60 * 60 } // 7 days
-      ).catch((err) => console.error("❌ Error creating TTL index:", err));
+      db.collection("crypto_sessions")
+        .createIndex({ "session.createdAt": 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 })
+        .catch((err) => console.error("❌ Error creating TTL index:", err));
     } else {
       console.error("❌ Mongoose connected but db is undefined. Session middleware skipped");
     }
@@ -588,7 +588,7 @@ export default function (bot: Telegraf<BotContext>) {
     if (!ctx.session) {
       ctx.session = {
         step: "welcome",
-        botType: "crypto",
+        botType: "crypto", // Hardcoded to "crypto"
         createdAt: Date.now(),
       };
     } else {
@@ -598,7 +598,7 @@ export default function (bot: Telegraf<BotContext>) {
       if (sessionAge > maxAge) {
         ctx.session = {
           step: "welcome",
-          botType: "crypto",
+          botType: "crypto", // Hardcoded to "crypto"
           createdAt: Date.now(),
         };
         await ctx.replyWithHTML(
@@ -685,7 +685,7 @@ export default function (bot: Telegraf<BotContext>) {
     // Reset session to start fresh
     ctx.session = {
       step: "welcome",
-      botType: "crypto",
+      botType: "crypto", // Hardcoded to "crypto"
       createdAt: Date.now(),
     };
 
@@ -693,7 +693,7 @@ export default function (bot: Telegraf<BotContext>) {
       `<b>🛠 Welcome to <u>Afibie Crypto Signals</u>! 🚀</b>\n\n` +
         `📈 <i>Home of Exclusive Futures Trade Signals</i>\n\n` +
         `<b>To gain access, complete these steps:</b>\n\n` +
-        `✅ <b>Step 1:</b> Solve the Captcha 🔢\anone` +
+        `✅ <b>Step 1:</b> Solve the Captcha 🔢\n` +
         `✅ <b>Step 2:</b> Choose Your Country 🌍\n` +
         `✅ <b>Step 3:</b> Register on <b>Bybit</b> / <b>Blofin</b> and provide your <b>Login UID</b> \n` +
         `✅ <b>Step 4:</b> Wait for Verification ⏳\n\n` +
@@ -847,7 +847,7 @@ export default function (bot: Telegraf<BotContext>) {
               `📌 <b>Your Details:</b>\n` +
               `Blofin UID: ${ctx.session.blofinUid || "Not provided"}\n\n` +
               `👉 Click the <b>Confirm</b> button to submit your details.`,
-            Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "/final")])
           );
         }
         break;
@@ -1003,7 +1003,7 @@ export default function (bot: Telegraf<BotContext>) {
       telegramId,
       username: ctx.from!.username,
       fullName: `${ctx.from!.first_name || ""} ${ctx.from!.last_name || ""}`.trim(),
-      botType: "crypto",
+      botType: "crypto", // Hardcoded to "crypto"
       country: session.country,
       status: "pending",
     };
