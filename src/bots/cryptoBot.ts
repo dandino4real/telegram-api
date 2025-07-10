@@ -7,7 +7,7 @@ import { isValidUID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import mongoose from "mongoose";
 import { session } from "telegraf-session-mongodb";
-import { BotContext, SessionData } from "../telegrafContext";
+import { BotContext} from "../telegrafContext";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -299,7 +299,6 @@ export default function (bot: Telegraf<BotContext>) {
           session.step = "blofin_confirmed";
           await ctx.replyWithHTML(
             `<b>✅ Bybit UID Submitted</b>\n` +
-              `✅ UID Validated Successfully!\n\n` +
               `You've provided your Bybit UID.\n\n` +
               `👉 Click the <b>Continue</b> button to proceed with Blofin registration.`,
             Markup.inlineKeyboard([
@@ -310,7 +309,6 @@ export default function (bot: Telegraf<BotContext>) {
           session.step = "final_confirmation";
           await ctx.replyWithHTML(
             `<b>Final Confirmation</b>\n\n` +
-              `🎉 All information has been validated and stored successfully!\n\n` +
               `📌 <b>Your Details:</b>\n` +
               `Blofin UID: ${session.blofinUid || "Not provided"}\n\n` +
               `👉 Click the <b>Confirm</b> button to submit your details.`,
@@ -339,8 +337,7 @@ export default function (bot: Telegraf<BotContext>) {
             }`
           : `Blofin UID: ${session.blofinUid || "Not provided"}`;
         await ctx.replyWithHTML(
-          `<b>✅ Blofin UID Submitted</b>\n` +
-            `✅ UID Validated Successfully!\n\n` +
+          `<b>✅ Blofin UID Submitted</b>\n\n` +
             `Final Confirmation\n\n` +
             `🎉 All information has been validated and stored successfully!\n\n` +
             `📌 <b>Your Details:</b>\n` +
@@ -387,7 +384,7 @@ export default function (bot: Telegraf<BotContext>) {
           `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
           `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
           `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
-          `✅ Once done, click the <b>Done</b> button to continue.`,
+         `\n\n<b>✅ Once done, click the "Done" button below to continue.</b>`,
         Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
       );
       return;
