@@ -1,4 +1,3 @@
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -7,46 +6,47 @@ import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
 import { isValidUID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import mongoose from "mongoose";
-import { session } from 'telegraf-session-mongodb';
+import { session } from "telegraf-session-mongodb";
 import { BotContext, SessionData } from "../telegrafContext";
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 
 dotenv.config();
 
-
-
 // Export as default function that receives bot instance
 export default function (bot: Telegraf<BotContext>) {
-
-  
   // Add session setup at the BEGINNING
   if (mongoose.connection.readyState === 1) {
     const db = mongoose.connection.db;
     if (db) {
-      bot.use(session(db, { 
-        sessionName: 'session', 
-        collectionName: 'crypto_sessions' 
-      }));
+      bot.use(
+        session(db, {
+          sessionName: "session",
+          collectionName: "crypto_sessions",
+        })
+      );
       console.log("✅ Crypto Bot MongoDB session connected");
     } else {
-      console.error("❌ Mongoose connected but db is undefined. Crypto session middleware skipped");
+      console.error(
+        "❌ Mongoose connected but db is undefined. Crypto session middleware skipped"
+      );
     }
   } else {
-    console.error("❌ Mongoose not connected. Crypto session middleware skipped");
+    console.error(
+      "❌ Mongoose not connected. Crypto session middleware skipped"
+    );
   }
-  
 
   // Replace the session middleware with:
-bot.use(async (ctx, next) => {
-  // Initialize session if it doesn't exist
-  if (!ctx.session) {
-    ctx.session = {
-      step: 'welcome',
-      botType: ctx.botType || 'crypto' 
-    };
-  }
-  return next();
-});
+  bot.use(async (ctx, next) => {
+    // Initialize session if it doesn't exist
+    if (!ctx.session) {
+      ctx.session = {
+        step: "welcome",
+        botType: ctx.botType || "crypto",
+      };
+    }
+    return next();
+  });
 
   const userSession: Record<string, any> = {};
 
@@ -339,18 +339,80 @@ bot.use(async (ctx, next) => {
     if (!session || session.step !== "bybit_confirmed") return;
 
     session.step = "bybit_link";
+
+    const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
+
+
+if (!VIDEO_FILE_ID) {
     await ctx.replyWithHTML(
       `<b>📈 Step 3: Bybit Registration</b>\n\n` +
         `<b>Why Bybit?</b>\n` +
         `📊 <i>Most Trustworthy Exchange</i>\n\n` +
         `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
         `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-        `🎥 Watch this <a href="${
-          process.env.BYBIT_VIDEO_LINK || "https://example.com/bybit-video"
-        }">video</a> to learn how to register properly and gain access.\n\n` +
+        `❌ Video unavailable. Please contact support for registration guidance.\n\n` +
         `✅ Once done, click the <b>Done</b> button to continue.`,
       Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
     );
+    return;
+  }
+
+
+
+try {
+    await ctx.replyWithVideo(
+      VIDEO_FILE_ID,
+      {
+        caption:
+          `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+          `<b>Why Bybit?</b>\n` +
+          `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+          `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+          `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+          `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
+          `✅ Once done, click the <b>Done</b> button to continue.`,
+        parse_mode: "HTML",
+        reply_markup: Markup.inlineKeyboard([
+          Markup.button.callback("🔵 Done", "done_bybit"),
+        ]).reply_markup,
+      }
+    );
+  } catch (error) {
+    console.error("Error sending video:", error);
+    await ctx.replyWithHTML(
+      `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+        `<b>Why Bybit?</b>\n` +
+        `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+        `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+        `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+        `❌ Video unavailable. Please contact support for registration guidance.\n\n` +
+        `✅ Once done, click the <b>Done</b> button to continue.`,
+      Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
+    );
+  }
+
+
+
+
+
+
+
+
+
+
+
+    // await ctx.replyWithHTML(
+    //   `<b>📈 Step 3: Bybit Registration</b>\n\n` +
+    //     `<b>Why Bybit?</b>\n` +
+    //     `📊 <i>Most Trustworthy Exchange</i>\n\n` +
+    //     `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
+    //     `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
+    //     `🎥 Watch this <a href="${
+    //       process.env.BYBIT_VIDEO_LINK || "https://example.com/bybit-video"
+    //     }">video</a> to learn how to register properly and gain access.\n\n` +
+    //     `✅ Once done, click the <b>Done</b> button to continue.`,
+    //   Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
+    // );
   });
 
   bot.action("continue_to_blofin", async (ctx) => {
@@ -364,9 +426,9 @@ bot.use(async (ctx, next) => {
         `<b>Why Blofin?</b>\n` +
         `🌍 <i>Global Access</i> - <u>No KYC required!</u>\n\n` +
         `📌 <b>Sign up here</b> 👉 <a href="${process.env.BLOFIN_LINK}">Blofin Registration Link</a>\n\n` +
-        `🎥 Watch this <a href="${
-          process.env.BLOFIN_VIDEO_LINK || "https://example.com/blofin-video"
-        }">video</a> to learn how to register properly and gain access.\n\n` +
+        // `🎥 Watch this <a href="${
+        //   process.env.BLOFIN_VIDEO_LINK || "https://example.com/blofin-video"
+        // }">video</a> to learn how to register properly and gain access.\n\n` +
         `✅ After registering, click the <b>Done</b> button to continue.`,
       Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_blofin")])
     );
@@ -414,7 +476,9 @@ bot.use(async (ctx, next) => {
     const updatePayload: Partial<ICRYPTO_User> = {
       telegramId,
       username: ctx.from.username,
-      fullName: `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim(),
+      fullName: `${ctx.from.first_name || ""} ${
+        ctx.from.last_name || ""
+      }`.trim(),
       botType: "crypto",
       country: session.country,
       status: "pending",
@@ -446,28 +510,25 @@ bot.use(async (ctx, next) => {
     await sendAdminAlertCrypto(user);
   }
 
-
-
-bot.on("video", async (ctx) => {
-  try {
-    const fileId = ctx.message.video.file_id;
-    console.log("🎥 Received video with file_id:", fileId);
-    await ctx.reply(`✅ Video received!\nFile ID:\n\`${fileId}\``, { parse_mode: "Markdown" });
-  } catch (error) {
-    console.error("Error handling video:", error);
-  }
-});
-
-
-
-
+  // bot.on("video", async (ctx) => {
+  //   try {
+  //     const fileId = ctx.message.video.file_id;
+  //     console.log("🎥 Received video with file_id:", fileId);
+  //     await ctx.reply(`✅ Video received!\nFile ID:\n\`${fileId}\``, { parse_mode: "Markdown" });
+  //   } catch (error) {
+  //     console.error("Error handling video:", error);
+  //   }
+  // });
 
   // Start watching for status changes
   watchUserStatusChanges();
 
   // Add this error handler to your bot instance
   bot.catch((err, ctx) => {
-    console.error(`🚨 Crypto Bot Error for update ${ctx.update.update_id}:`, err);
+    console.error(
+      `🚨 Crypto Bot Error for update ${ctx.update.update_id}:`,
+      err
+    );
     ctx.reply("❌ An error occurred. Please try again later.");
   });
 }
