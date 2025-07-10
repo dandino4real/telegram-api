@@ -535,12 +535,6 @@
 
 
 
-
-
-
-
-
-
 import { Telegraf, Markup, Context } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -579,16 +573,25 @@ dotenv.config();
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
 
 export default function (bot: Telegraf<BotContext>) {
-  let useMongoDB = true;
+  let useMongoDB = true; // Set to false to test in-memory sessions
 
   // MongoDB session setup
-  if (mongoose.connection.readyState === 1) {
+  if (mongoose.connection.readyState === 1 && useMongoDB) {
     const db = mongoose.connection.db;
     if (db) {
       bot.use(
         session(db, {
           sessionName: "session",
           collectionName: "crypto_sessions",
+          sessionKeyFn: (ctx: Context): string => {
+            const key = ctx.from?.id?.toString();
+            if (!key) {
+              console.error("[ERROR] sessionKeyFn: ctx.from.id is undefined, using 'unknown' as key");
+              return "unknown";
+            }
+            console.log(`[DEBUG] Generating session key for user ${key}`);
+            return key;
+          },
         })
       );
       console.log("✅ Crypto Bot MongoDB session connected");
@@ -602,19 +605,19 @@ export default function (bot: Telegraf<BotContext>) {
       useMongoDB = false;
     }
   } else {
-    console.error("❌ Mongoose not connected. Falling back to in-memory sessions.");
+    console.error("❌ Mongoose not connected or disabled. Using in-memory sessions.");
     useMongoDB = false;
   }
 
   // Helper function to save session with retries
   async function saveSessionWithRetry(ctx: BotContext, retries = 3, delay = 1000): Promise<boolean> {
     const userId = ctx.from?.id.toString() || "unknown";
+    console.log(`[DEBUG] Attempting to save session for user ${userId}:`, ctx.session);
     if (!useMongoDB) {
       console.log(`[DEBUG] Using in-memory session for user ${userId}`);
       return true;
     }
 
-    // Check if session and store are available
     if (!ctx.session || !ctx.session.__store || !ctx.session.__store.saveSession || !ctx.session.__key) {
       console.error(`[ERROR] Session store or key not available for user ${userId}. Session:`, ctx.session);
       useMongoDB = false;
@@ -624,7 +627,9 @@ export default function (bot: Telegraf<BotContext>) {
     for (let i = 0; i < retries; i++) {
       try {
         await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
-        console.log(`[DEBUG] Session saved for user ${userId} (attempt ${i + 1}):`, ctx.session);
+        console.log(`[DEBUG] Session saved successfully for user ${userId} (attempt ${i + 1}):`, ctx.session);
+        // Add slight delay to ensure MongoDB write completes
+        await new Promise((resolve) => setTimeout(resolve, 100));
         return true;
       } catch (error) {
         console.error(`[ERROR] Failed to save session for user ${userId} (attempt ${i + 1}):`, error);
@@ -756,7 +761,6 @@ export default function (bot: Telegraf<BotContext>) {
     );
   });
 
-  // Resume conversation where user left off
   bot.command("resume", async (ctx) => {
     const userId = ctx.from?.id.toString();
     console.log(`[DEBUG] /resume command - Session for user ${userId}:`, ctx.session);
@@ -831,8 +835,8 @@ export default function (bot: Telegraf<BotContext>) {
       return;
     }
 
-    // Reinitialize session if invalid or not in a valid state for this action
-    if (!ctx.session || !["welcome", "idle"].includes(ctx.session.step)) {
+    // Reinitialize session if invalid or not in a valid state
+    if (!ctx.session || !["welcome", "idle", "captcha"].includes(ctx.session.step)) {
       console.log(`[DEBUG] continue_to_captcha - Invalid or unexpected session for user ${userId}:`, ctx.session);
       ctx.session = {
         step: "welcome",
@@ -905,17 +909,32 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     console.log(`[DEBUG] Text message received from user ${userId}: "${text}", session:`, ctx.session);
 
-    if (!ctx.session || !ctx.session.step || !["captcha", "country", "bybit_uid", "blofin_uid", "final_confirmation"].includes(ctx.session.step)) {
-      console.log(`[DEBUG] Invalid session or step for user ${userId}:`, ctx.session);
+    // Reinitialize session if invalid, but try to recover for captcha step
+    if (!ctx.session || !ctx.session.step) {
+      console.log(`[DEBUG] Invalid session for user ${userId}, reinitializing:`, ctx.session);
       ctx.session = {
-        step: "idle",
+        step: "captcha",
         botType: "crypto",
         createdAt: Date.now(),
+        captcha: generateCaptcha(),
       };
+      console.log(`[DEBUG] Reinitialized session for user ${userId}:`, ctx.session);
       await saveSessionWithRetry(ctx);
       await ctx.replyWithHTML(
-        `⚠️ <b>Session expired or invalid.</b>\n\n` +
-          `Please type <b>/start</b> to begin the registration process.`
+        `⚠️ <b>Session was reset, please try the captcha again.</b>\n\n` +
+          `👉 <b>Type this number:</b> <code>${ctx.session.captcha}</code>`
+      );
+      return;
+    }
+
+    if (!["captcha", "country", "bybit_uid", "blofin_uid", "final_confirmation"].includes(ctx.session.step)) {
+      console.log(`[DEBUG] Unexpected session step for user ${userId}:`, ctx.session.step);
+      ctx.session.step = "captcha";
+      ctx.session.captcha = generateCaptcha();
+      await saveSessionWithRetry(ctx);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please continue the registration process.</b>\n\n` +
+          `👉 <b>Type this number:</b> <code>${ctx.session.captcha}</code>`
       );
       return;
     }
