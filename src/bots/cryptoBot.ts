@@ -527,6 +527,8 @@
 
 
 
+
+
 import { Telegraf, Markup, Context } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -585,12 +587,14 @@ export default function (bot: Telegraf<BotContext>) {
 
   // Middleware to initialize session and handle expiration
   bot.use(async (ctx, next) => {
+    console.log(`[DEBUG] Processing update for user ${ctx.from?.id}, session:`, ctx.session);
     if (!ctx.session) {
       ctx.session = {
         step: "welcome",
-        botType: "crypto", // Hardcoded to "crypto"
+        botType: "crypto",
         createdAt: Date.now(),
       };
+      console.log(`[DEBUG] Initialized new session for user ${ctx.from?.id}:`, ctx.session);
     } else {
       // Check if session is expired (7 days)
       const sessionAge = Date.now() - (ctx.session.createdAt || 0);
@@ -598,9 +602,10 @@ export default function (bot: Telegraf<BotContext>) {
       if (sessionAge > maxAge) {
         ctx.session = {
           step: "welcome",
-          botType: "crypto", // Hardcoded to "crypto"
+          botType: "crypto",
           createdAt: Date.now(),
         };
+        console.log(`[DEBUG] Session expired for user ${ctx.from?.id}, reset to:`, ctx.session);
         await ctx.replyWithHTML(
           `⚠️ <b>Your previous session has expired.</b>\n\n` +
             `Please type <b>/start</b> to begin the registration process.`
@@ -610,6 +615,7 @@ export default function (bot: Telegraf<BotContext>) {
       // Ensure createdAt exists for existing sessions
       if (!ctx.session.createdAt) {
         ctx.session.createdAt = Date.now();
+        console.log(`[DEBUG] Added createdAt to session for user ${ctx.from?.id}:`, ctx.session);
       }
     }
     return next();
@@ -685,9 +691,10 @@ export default function (bot: Telegraf<BotContext>) {
     // Reset session to start fresh
     ctx.session = {
       step: "welcome",
-      botType: "crypto", // Hardcoded to "crypto"
+      botType: "crypto",
       createdAt: Date.now(),
     };
+    console.log(`[DEBUG] /start command - Session reset for user ${userId}:`, ctx.session);
 
     await ctx.replyWithHTML(
       `<b>🛠 Welcome to <u>Afibie Crypto Signals</u>! 🚀</b>\n\n` +
@@ -703,10 +710,23 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_captcha", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "welcome") return;
+    if (!ctx.session || ctx.session.step !== "welcome") {
+      console.log(`[DEBUG] continue_to_captcha - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "captcha";
     ctx.session.captcha = generateCaptcha();
+    console.log(`[DEBUG] continue_to_captcha - Set session for user ${ctx.from?.id}:`, ctx.session);
+
+    // Explicitly save session to MongoDB
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession, but it's available
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved to MongoDB for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
 
     await ctx.replyWithHTML(
       `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
@@ -751,10 +771,20 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.on(message("text"), async (ctx) => {
     const text = ctx.message.text.trim();
-    if (!ctx.session) return;
+    console.log(`[DEBUG] Text message received from user ${ctx.from?.id}: "${text}", session:`, ctx.session);
+
+    if (!ctx.session) {
+      console.log(`[DEBUG] No session for user ${ctx.from?.id}, prompting /start`);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Session not found.</b>\n\n` +
+          `Please type <b>/start</b> to begin the registration process.`
+      );
+      return;
+    }
 
     // If session is not initialized or step is invalid, prompt to start
     if (!ctx.session.step || !["captcha", "country", "bybit_uid", "blofin_uid", "final_confirmation"].includes(ctx.session.step)) {
+      console.log(`[DEBUG] Invalid session step for user ${ctx.from?.id}:`, ctx.session.step);
       await ctx.replyWithHTML(
         `⚠️ <b>Session expired or invalid.</b>\n\n` +
           `Please type <b>/start</b> to begin the registration process.`
@@ -766,6 +796,15 @@ export default function (bot: Telegraf<BotContext>) {
       case "captcha": {
         if (!ctx.session.captcha) {
           ctx.session.captcha = generateCaptcha();
+          console.log(`[DEBUG] Generated new captcha for user ${ctx.from?.id}:`, ctx.session.captcha);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
               `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
@@ -776,6 +815,15 @@ export default function (bot: Telegraf<BotContext>) {
 
         if (verifyCaptcha(text, ctx.session.captcha)) {
           ctx.session.step = "captcha_confirmed";
+          console.log(`[DEBUG] Captcha verified for user ${ctx.from?.id}, new session:`, ctx.session);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `✅ <b>Correct!</b>\n\n` +
               `You've passed the captcha verification.\n\n` +
@@ -784,6 +832,15 @@ export default function (bot: Telegraf<BotContext>) {
           );
         } else {
           ctx.session.captcha = generateCaptcha();
+          console.log(`[DEBUG] Incorrect captcha for user ${ctx.from?.id}, new captcha:`, ctx.session.captcha);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `❌ <b>Incorrect Captcha</b>\n\n` +
               `🚫 Please try again:\n` +
@@ -803,6 +860,15 @@ export default function (bot: Telegraf<BotContext>) {
         if (isUSA || isUK || isCanada) {
           ctx.session.step = "blofin_confirmed";
           ctx.session.requiresBoth = false;
+          console.log(`[DEBUG] Country selected for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `<b>🌍 Country Selected: ${text}</b>\n\n` +
               `You've chosen your country.\n\n` +
@@ -812,6 +878,15 @@ export default function (bot: Telegraf<BotContext>) {
         } else {
           ctx.session.step = "bybit_confirmed";
           ctx.session.requiresBoth = true;
+          console.log(`[DEBUG] Country selected for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `<b>🌍 Country Selected: ${text}</b>\n\n` +
               `You've chosen your country.\n\n` +
@@ -834,6 +909,15 @@ export default function (bot: Telegraf<BotContext>) {
         ctx.session.bybitUid = text;
         if (ctx.session.requiresBoth) {
           ctx.session.step = "blofin_confirmed";
+          console.log(`[DEBUG] Bybit UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `<b>✅ Bybit UID Submitted</b>\n` +
               `You've provided your Bybit UID.\n\n` +
@@ -842,12 +926,21 @@ export default function (bot: Telegraf<BotContext>) {
           );
         } else {
           ctx.session.step = "final_confirmation";
+          console.log(`[DEBUG] Bybit UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
           await ctx.replyWithHTML(
             `<b>Final Confirmation</b>\n\n` +
               `📌 <b>Your Details:</b>\n` +
               `Blofin UID: ${ctx.session.blofinUid || "Not provided"}\n\n` +
               `👉 Click the <b>Confirm</b> button to submit your details.`,
-            Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "/final")])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONFIRM", "confirm_final")])
           );
         }
         break;
@@ -867,6 +960,15 @@ export default function (bot: Telegraf<BotContext>) {
         const details = ctx.session.requiresBoth
           ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${ctx.session.blofinUid || "Not provided"}`
           : `Blofin UID: ${ctx.session.blofinUid || "Not provided"}`;
+        console.log(`[DEBUG] Blofin UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
+        // Save session
+        try {
+          // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+          await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+          console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+        } catch (error) {
+          console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+        }
         await ctx.replyWithHTML(
           `<b>✅ Blofin UID Submitted</b>\n\n` +
             `Final Confirmation\n\n` +
@@ -895,9 +997,21 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_country", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "captcha_confirmed") return;
+    if (!ctx.session || ctx.session.step !== "captcha_confirmed") {
+      console.log(`[DEBUG] continue_to_country - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "country";
+    console.log(`[DEBUG] continue_to_country - Set session for user ${ctx.from?.id}:`, ctx.session);
+    // Save session
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
     await ctx.replyWithHTML(
       `<b>🚀 Step 2: Country Selection</b>\n\n` +
         `🌍 What is your country of residence?`,
@@ -906,9 +1020,21 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_bybit", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "bybit_confirmed") return;
+    if (!ctx.session || ctx.session.step !== "bybit_confirmed") {
+      console.log(`[DEBUG] continue_to_bybit - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "bybit_link";
+    console.log(`[DEBUG] continue_to_bybit - Set session for user ${ctx.from?.id}:`, ctx.session);
+    // Save session
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
 
     if (!VIDEO_FILE_ID) {
       await ctx.replyWithHTML(
@@ -953,9 +1079,21 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_blofin", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "blofin_confirmed") return;
+    if (!ctx.session || ctx.session.step !== "blofin_confirmed") {
+      console.log(`[DEBUG] continue_to_blofin - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "blofin_link";
+    console.log(`[DEBUG] continue_to_blofin - Set session for user ${ctx.from?.id}:`, ctx.session);
+    // Save session
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
     await ctx.replyWithHTML(
       `<b>🚀 Step 3: Blofin Registration</b>\n\n` +
         `<b>Why Blofin?</b>\n` +
@@ -967,9 +1105,21 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("done_bybit", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "bybit_link") return;
+    if (!ctx.session || ctx.session.step !== "bybit_link") {
+      console.log(`[DEBUG] done_bybit - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "bybit_uid";
+    console.log(`[DEBUG] done_bybit - Set session for user ${ctx.from?.id}:`, ctx.session);
+    // Save session
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Bybit UID</b>\n\n` +
         `Please enter your <b>Bybit UID</b> below to proceed.\n\n` +
@@ -979,9 +1129,21 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("done_blofin", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "blofin_link") return;
+    if (!ctx.session || ctx.session.step !== "blofin_link") {
+      console.log(`[DEBUG] done_blofin - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "blofin_uid";
+    console.log(`[DEBUG] done_blofin - Set session for user ${ctx.from?.id}:`, ctx.session);
+    // Save session
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Blofin UID</b>\n\n` +
         `Please enter your <b>Blofin UID</b> below to continue.\n\n` +
@@ -991,9 +1153,21 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("confirm_final", async (ctx) => {
-    if (!ctx.session || ctx.session.step !== "final_confirmation") return;
+    if (!ctx.session || ctx.session.step !== "final_confirmation") {
+      console.log(`[DEBUG] confirm_final - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
+      return;
+    }
 
     ctx.session.step = "final";
+    console.log(`[DEBUG] confirm_final - Set session for user ${ctx.from?.id}:`, ctx.session);
+    // Save session
+    try {
+      // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+      await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+      console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+    } catch (error) {
+      console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+    }
     await saveAndNotify(ctx, ctx.session);
   });
 
@@ -1003,7 +1177,7 @@ export default function (bot: Telegraf<BotContext>) {
       telegramId,
       username: ctx.from!.username,
       fullName: `${ctx.from!.first_name || ""} ${ctx.from!.last_name || ""}`.trim(),
-      botType: "crypto", // Hardcoded to "crypto"
+      botType: "crypto",
       country: session.country,
       status: "pending",
     };
@@ -1025,6 +1199,8 @@ export default function (bot: Telegraf<BotContext>) {
       { upsert: true, new: true }
     );
 
+    console.log(`[DEBUG] User data saved for user ${telegramId}:`, user);
+
     await ctx.replyWithHTML(
       `<b>✅ Submission Successful!</b>\n\n` +
         `⏳ <b>Please wait</b> while your details are being reviewed (Allow 24 hours).\n\n` +
@@ -1036,13 +1212,29 @@ export default function (bot: Telegraf<BotContext>) {
 
   // Handle non-command messages when session exists
   bot.on(message("text"), async (ctx) => {
-    if (!ctx.session || !ctx.session.step) return;
+    if (!ctx.session || !ctx.session.step) {
+      console.log(`[DEBUG] No session or step for user ${ctx.from?.id}:`, ctx.session);
+      await ctx.replyWithHTML(
+        `⚠️ <b>Please start the registration process.</b>\n\n` +
+          `Type <b>/start</b> to begin.`
+      );
+      return;
+    }
 
     // Prompt user to continue based on their current step
     switch (ctx.session.step) {
       case "captcha":
         if (!ctx.session.captcha) {
           ctx.session.captcha = generateCaptcha();
+          console.log(`[DEBUG] Generated new captcha for user ${ctx.from?.id}:`, ctx.session.captcha);
+          // Save session
+          try {
+            // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
+            await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
+            console.log(`[DEBUG] Session saved for user ${ctx.from?.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to save session for user ${ctx.from?.id}:`, error);
+          }
         }
         await ctx.replyWithHTML(
           `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
@@ -1086,6 +1278,7 @@ export default function (bot: Telegraf<BotContext>) {
         );
         break;
       default:
+        console.log(`[DEBUG] Unhandled session step for user ${ctx.from?.id}:`, ctx.session.step);
         await ctx.replyWithHTML(
           `⚠️ <b>Please continue the registration process.</b>\n\n` +
             `Type <b>/start</b> to restart if you're stuck.`
