@@ -490,15 +490,15 @@ export default function (bot: Telegraf<BotContext>) {
     await sendAdminAlertCrypto(user);
   }
 
-  bot.on("video", async (ctx) => {
-    try {
-      const fileId = ctx.message.video.file_id;
-      console.log("🎥 Received video with file_id:", fileId);
-      await ctx.reply(`✅ Video received!\nFile ID:\n\`${fileId}\``, { parse_mode: "Markdown" });
-    } catch (error) {
-      console.error("Error handling video:", error);
-    }
-  });
+  // bot.on("video", async (ctx) => {
+  //   try {
+  //     const fileId = ctx.message.video.file_id;
+  //     console.log("🎥 Received video with file_id:", fileId);
+  //     await ctx.reply(`✅ Video received!\nFile ID:\n\`${fileId}\``, { parse_mode: "Markdown" });
+  //   } catch (error) {
+  //     console.error("Error handling video:", error);
+  //   }
+  // });
 
   // Start watching for status changes
   watchUserStatusChanges();
