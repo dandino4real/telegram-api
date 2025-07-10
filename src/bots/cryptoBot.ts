@@ -1300,8 +1300,6 @@
 
 
 
-
-
 import { Telegraf, Markup, Context } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -1335,8 +1333,6 @@ dotenv.config();
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
 
 export default function (bot: Telegraf<BotContext>) {
-  let useMongoDB = true;
-
   // Set up MongoDB session middleware
   if (mongoose.connection.readyState === 1) {
     const db = mongoose.connection.db;
@@ -1349,35 +1345,21 @@ export default function (bot: Telegraf<BotContext>) {
       );
       console.log("✅ Crypto Bot MongoDB session connected");
 
-      // Set up MongoDB TTL index for session expiration (7 days)
+      // Set up MongoDB TTL index for session expiration (7 days) - BACKGROUND MODE
       db.collection("crypto_sessions")
-        .createIndex({ "session.createdAt": 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 })
+        .createIndex(
+          { "session.createdAt": 1 }, 
+          { 
+            expireAfterSeconds: 7 * 24 * 60 * 60,
+            background: true // CRITICAL OPTIMIZATION
+          }
+        )
         .catch((err) => console.error("❌ Error creating TTL index:", err));
     } else {
-      console.error("❌ Mongoose connected but db is undefined. Falling back to in-memory sessions.");
-      useMongoDB = false;
+      console.error("❌ Mongoose connected but db is undefined. Session middleware skipped");
     }
   } else {
-    console.error("❌ Mongoose not connected. Falling back to in-memory sessions.");
-    useMongoDB = false;
-  }
-
-  // Helper function to save session with retries
-  async function saveSessionWithRetry(ctx: BotContext, retries = 3, delay = 1000): Promise<boolean> {
-    if (!useMongoDB) return true; // Skip for in-memory sessions
-    for (let i = 0; i < retries; i++) {
-      try {
-        // @ts-ignore: telegraf-session-mongodb doesn't expose saveSession
-        await ctx.session.__store.saveSession(ctx.session.__key, ctx.session);
-        console.log(`[DEBUG] Session saved for user ${ctx.from?.id} (attempt ${i + 1})`);
-        return true;
-      } catch (error) {
-        console.error(`[ERROR] Failed to save session for user ${ctx.from?.id} (attempt ${i + 1}):`, error);
-        if (i < retries - 1) await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-    console.error(`[ERROR] Failed to save session after ${retries} attempts for user ${ctx.from?.id}`);
-    return false;
+    console.error("❌ Mongoose not connected. Session middleware skipped");
   }
 
   // Middleware to initialize session and handle expiration
@@ -1387,20 +1369,10 @@ export default function (bot: Telegraf<BotContext>) {
       ctx.session = {
         step: "welcome",
         botType: "crypto",
+        requiresBoth: false,
         createdAt: Date.now(),
       };
       console.log(`[DEBUG] Initialized new session for user ${ctx.from?.id}:`, ctx.session);
-      if (useMongoDB) {
-        const saved = await saveSessionWithRetry(ctx);
-        if (!saved) {
-          console.error(`[ERROR] Session initialization failed for user ${ctx.from?.id}. Using in-memory session.`);
-          useMongoDB = false; // Fallback to in-memory
-          await ctx.replyWithHTML(
-            `⚠️ <b>Server issue detected.</b>\n\n` +
-              `Please try again or type <b>/start</b> to restart.`
-          );
-        }
-      }
     } else {
       // Check if session is expired (7 days)
       const sessionAge = Date.now() - (ctx.session.createdAt || 0);
@@ -1409,19 +1381,10 @@ export default function (bot: Telegraf<BotContext>) {
         ctx.session = {
           step: "welcome",
           botType: "crypto",
+          requiresBoth: false,
           createdAt: Date.now(),
         };
         console.log(`[DEBUG] Session expired for user ${ctx.from?.id}, reset to:`, ctx.session);
-        if (useMongoDB) {
-          const saved = await saveSessionWithRetry(ctx);
-          if (!saved) {
-            useMongoDB = false;
-            await ctx.replyWithHTML(
-              `⚠️ <b>Server issue detected.</b>\n\n` +
-                `Please type <b>/start</b> to restart.`
-            );
-          }
-        }
         await ctx.replyWithHTML(
           `⚠️ <b>Your previous session has expired.</b>\n\n` +
             `Please type <b>/start</b> to begin the registration process.`
@@ -1432,7 +1395,6 @@ export default function (bot: Telegraf<BotContext>) {
       if (!ctx.session.createdAt) {
         ctx.session.createdAt = Date.now();
         console.log(`[DEBUG] Added createdAt to session for user ${ctx.from?.id}:`, ctx.session);
-        if (useMongoDB) await saveSessionWithRetry(ctx);
       }
     }
     return next();
@@ -1509,19 +1471,10 @@ export default function (bot: Telegraf<BotContext>) {
     ctx.session = {
       step: "welcome",
       botType: "crypto",
+      requiresBoth: false,
       createdAt: Date.now(),
     };
     console.log(`[DEBUG] /start command - Session reset for user ${userId}:`, ctx.session);
-    if (useMongoDB) {
-      const saved = await saveSessionWithRetry(ctx);
-      if (!saved) {
-        useMongoDB = false;
-        await ctx.replyWithHTML(
-          `⚠️ <b>Server issue detected.</b>\n\n` +
-            `Please try again or type <b>/start</b> to restart.`
-        );
-      }
-    }
 
     await ctx.replyWithHTML(
       `<b>🛠 Welcome to <u>Afibie Crypto Signals</u>! 🚀</b>\n\n` +
@@ -1539,27 +1492,12 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("continue_to_captcha", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "welcome") {
       console.log(`[DEBUG] continue_to_captcha - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please start the registration process.</b>\n\n` +
-          `Type <b>/start</b> to begin.`
-      );
       return;
     }
 
     ctx.session.step = "captcha";
     ctx.session.captcha = generateCaptcha();
     console.log(`[DEBUG] continue_to_captcha - Set session for user ${ctx.from?.id}:`, ctx.session);
-
-    if (useMongoDB) {
-      const saved = await saveSessionWithRetry(ctx);
-      if (!saved) {
-        useMongoDB = false;
-        await ctx.replyWithHTML(
-          `⚠️ <b>Server issue detected.</b>\n\n` +
-            `Please try again or type <b>/start</b> to restart.`
-        );
-      }
-    }
 
     await ctx.replyWithHTML(
       `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
@@ -1615,19 +1553,41 @@ export default function (bot: Telegraf<BotContext>) {
       return;
     }
 
-    // If session is not initialized or step is invalid, prompt to start
-    if (!ctx.session.step || !["captcha", "country", "bybit_uid", "blofin_uid", "final_confirmation"].includes(ctx.session.step)) {
+    // Allowed steps for text input
+    const allowedTextSteps = [
+      "captcha", 
+      "country", 
+      "bybit_uid", 
+      "blofin_uid", 
+      "final_confirmation",
+      "captcha_confirmed",  // FIX: Added intermediate states
+      "bybit_confirmed",
+      "blofin_confirmed"
+    ];
+
+    // If session step is invalid or not in allowed list
+    if (!ctx.session.step || !allowedTextSteps.includes(ctx.session.step)) {
       console.log(`[DEBUG] Invalid session step for user ${ctx.from?.id}:`, ctx.session.step);
-      ctx.session = {
-        step: "welcome",
-        botType: "crypto",
-        createdAt: Date.now(),
-      };
-      if (useMongoDB) await saveSessionWithRetry(ctx);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Session expired or invalid.</b>\n\n` +
-          `Please type <b>/start</b> to begin the registration process.`
-      );
+      
+      // Provide specific guidance for intermediate steps
+      if (ctx.session.step === "welcome") {
+        await ctx.replyWithHTML(
+          `👋 <b>Welcome!</b>\n\n` +
+          `Please click the <b>CONTINUE</b> button to begin.`
+        );
+      } 
+      else if (ctx.session.step === "bybit_link" || ctx.session.step === "blofin_link") {
+        await ctx.replyWithHTML(
+          `ℹ️ <b>Please use the buttons</b>\n\n` +
+          `Click the <b>DONE</b> button after registration.`
+        );
+      }
+      else {
+        await ctx.replyWithHTML(
+          `⚠️ <b>Please continue using buttons</b>\n\n` +
+          `Use the provided buttons to proceed or type /start to restart.`
+        );
+      }
       return;
     }
 
@@ -1636,7 +1596,6 @@ export default function (bot: Telegraf<BotContext>) {
         if (!ctx.session.captcha) {
           ctx.session.captcha = generateCaptcha();
           console.log(`[DEBUG] Generated new captcha for user ${ctx.from?.id}:`, ctx.session.captcha);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
               `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
@@ -1648,16 +1607,6 @@ export default function (bot: Telegraf<BotContext>) {
         if (verifyCaptcha(text, ctx.session.captcha)) {
           ctx.session.step = "captcha_confirmed";
           console.log(`[DEBUG] Captcha verified for user ${ctx.from?.id}, new session:`, ctx.session);
-          if (useMongoDB) {
-            const saved = await saveSessionWithRetry(ctx);
-            if (!saved) {
-              useMongoDB = false;
-              await ctx.replyWithHTML(
-                `⚠️ <b>Server issue detected.</b>\n\n` +
-                  `Please try again or type <b>/start</b> to restart.`
-              );
-            }
-          }
           await ctx.replyWithHTML(
             `✅ <b>Correct!</b>\n\n` +
               `You've passed the captcha verification.\n\n` +
@@ -1667,7 +1616,6 @@ export default function (bot: Telegraf<BotContext>) {
         } else {
           ctx.session.captcha = generateCaptcha();
           console.log(`[DEBUG] Incorrect captcha for user ${ctx.from?.id}, new captcha:`, ctx.session.captcha);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `❌ <b>Incorrect Captcha</b>\n\n` +
               `🚫 Please try again:\n` +
@@ -1688,7 +1636,6 @@ export default function (bot: Telegraf<BotContext>) {
           ctx.session.step = "blofin_confirmed";
           ctx.session.requiresBoth = false;
           console.log(`[DEBUG] Country selected for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>🌍 Country Selected: ${text}</b>\n\n` +
               `You've chosen your country.\n\n` +
@@ -1699,7 +1646,6 @@ export default function (bot: Telegraf<BotContext>) {
           ctx.session.step = "bybit_confirmed";
           ctx.session.requiresBoth = true;
           console.log(`[DEBUG] Country selected for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>🌍 Country Selected: ${text}</b>\n\n` +
               `You've chosen your country.\n\n` +
@@ -1723,7 +1669,6 @@ export default function (bot: Telegraf<BotContext>) {
         if (ctx.session.requiresBoth) {
           ctx.session.step = "blofin_confirmed";
           console.log(`[DEBUG] Bybit UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>✅ Bybit UID Submitted</b>\n` +
               `You've provided your Bybit UID.\n\n` +
@@ -1733,7 +1678,6 @@ export default function (bot: Telegraf<BotContext>) {
         } else {
           ctx.session.step = "final_confirmation";
           console.log(`[DEBUG] Bybit UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
           await ctx.replyWithHTML(
             `<b>Final Confirmation</b>\n\n` +
               `📌 <b>Your Details:</b>\n` +
@@ -1760,7 +1704,6 @@ export default function (bot: Telegraf<BotContext>) {
           ? `Bybit UID: ${ctx.session.bybitUid || "Not provided"}\nBlofin UID: ${ctx.session.blofinUid || "Not provided"}`
           : `Blofin UID: ${ctx.session.blofinUid || "Not provided"}`;
         console.log(`[DEBUG] Blofin UID submitted for user ${ctx.from?.id}: ${text}, new session:`, ctx.session);
-        if (useMongoDB) await saveSessionWithRetry(ctx);
         await ctx.replyWithHTML(
           `<b>✅ Blofin UID Submitted</b>\n\n` +
             `Final Confirmation\n\n` +
@@ -1785,22 +1728,42 @@ export default function (bot: Telegraf<BotContext>) {
         );
         break;
       }
+      
+      // Handle intermediate states
+      case "captcha_confirmed":
+        await ctx.replyWithHTML(
+          `✅ <b>Captcha already verified!</b>\n\n` +
+          `Please click <b>CONTINUE</b> to select your country.`,
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_country")])
+        );
+        break;
+        
+      case "bybit_confirmed":
+        await ctx.replyWithHTML(
+          `🌍 <b>Country already selected!</b>\n\n` +
+          `Please click <b>CONTINUE</b> to proceed with Bybit registration.`,
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_bybit")])
+        );
+        break;
+        
+      case "blofin_confirmed":
+        await ctx.replyWithHTML(
+          `🌍 <b>Country already selected!</b>\n\n` +
+          `Please click <b>CONTINUE</b> to proceed with Blofin registration.`,
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_blofin")])
+        );
+        break;
     }
   });
 
   bot.action("continue_to_country", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "captcha_confirmed") {
       console.log(`[DEBUG] continue_to_country - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please continue the registration process.</b>\n\n` +
-          `Type <b>/start</b> to restart.`
-      );
       return;
     }
 
     ctx.session.step = "country";
     console.log(`[DEBUG] continue_to_country - Set session for user ${ctx.from?.id}:`, ctx.session);
-    if (useMongoDB) await saveSessionWithRetry(ctx);
     await ctx.replyWithHTML(
       `<b>🚀 Step 2: Country Selection</b>\n\n` +
         `🌍 What is your country of residence?`,
@@ -1811,16 +1774,11 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("continue_to_bybit", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "bybit_confirmed") {
       console.log(`[DEBUG] continue_to_bybit - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please continue the registration process.</b>\n\n` +
-          `Type <b>/start</b> to restart.`
-      );
       return;
     }
 
     ctx.session.step = "bybit_link";
     console.log(`[DEBUG] continue_to_bybit - Set session for user ${ctx.from?.id}:`, ctx.session);
-    if (useMongoDB) await saveSessionWithRetry(ctx);
 
     if (!VIDEO_FILE_ID) {
       await ctx.replyWithHTML(
@@ -1867,16 +1825,11 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("continue_to_blofin", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "blofin_confirmed") {
       console.log(`[DEBUG] continue_to_blofin - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please continue the registration process.</b>\n\n` +
-          `Type <b>/start</b> to restart.`
-      );
       return;
     }
 
     ctx.session.step = "blofin_link";
     console.log(`[DEBUG] continue_to_blofin - Set session for user ${ctx.from?.id}:`, ctx.session);
-    if (useMongoDB) await saveSessionWithRetry(ctx);
     await ctx.replyWithHTML(
       `<b>🚀 Step 3: Blofin Registration</b>\n\n` +
         `<b>Why Blofin?</b>\n` +
@@ -1890,16 +1843,11 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("done_bybit", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "bybit_link") {
       console.log(`[DEBUG] done_bybit - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please continue the registration process.</b>\n\n` +
-          `Type <b>/start</b> to restart.`
-      );
       return;
     }
 
     ctx.session.step = "bybit_uid";
     console.log(`[DEBUG] done_bybit - Set session for user ${ctx.from?.id}:`, ctx.session);
-    if (useMongoDB) await saveSessionWithRetry(ctx);
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Bybit UID</b>\n\n` +
         `Please enter your <b>Bybit UID</b> below to proceed.\n\n` +
@@ -1911,16 +1859,11 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("done_blofin", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "blofin_link") {
       console.log(`[DEBUG] done_blofin - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please continue the registration process.</b>\n\n` +
-          `Type <b>/start</b> to restart.`
-      );
       return;
     }
 
     ctx.session.step = "blofin_uid";
     console.log(`[DEBUG] done_blofin - Set session for user ${ctx.from?.id}:`, ctx.session);
-    if (useMongoDB) await saveSessionWithRetry(ctx);
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Blofin UID</b>\n\n` +
         `Please enter your <b>Blofin UID</b> below to continue.\n\n` +
@@ -1932,16 +1875,11 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("confirm_final", async (ctx) => {
     if (!ctx.session || ctx.session.step !== "final_confirmation") {
       console.log(`[DEBUG] confirm_final - Invalid session or step for user ${ctx.from?.id}:`, ctx.session);
-      await ctx.replyWithHTML(
-        `⚠️ <b>Please continue the registration process.</b>\n\n` +
-          `Type <b>/start</b> to restart.`
-      );
       return;
     }
 
     ctx.session.step = "final";
     console.log(`[DEBUG] confirm_final - Set session for user ${ctx.from?.id}:`, ctx.session);
-    if (useMongoDB) await saveSessionWithRetry(ctx);
     await saveAndNotify(ctx, ctx.session);
   });
 
@@ -2001,7 +1939,6 @@ export default function (bot: Telegraf<BotContext>) {
         if (!ctx.session.captcha) {
           ctx.session.captcha = generateCaptcha();
           console.log(`[DEBUG] Generated new captcha for user ${ctx.from?.id}:`, ctx.session.captcha);
-          if (useMongoDB) await saveSessionWithRetry(ctx);
         }
         await ctx.replyWithHTML(
           `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
