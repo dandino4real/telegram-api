@@ -630,16 +630,10 @@ dotenv.config({
   path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
 });
 
-// Log environment variables at startup (sanitize sensitive data)
-console.log("[Startup] Environment variables:", {
-  MONGODB_URI: process.env.MONGODB_URI ? "Defined" : "Undefined",
-  GROUP_CHAT_ID: process.env.GROUP_CHAT_ID ? "Defined" : "Undefined",
-  BYBIT_LINK: process.env.BYBIT_LINK ? "Defined" : "Undefined",
-  BLOFIN_LINK: process.env.BLOFIN_LINK ? "Defined" : "Undefined",
-  BYBIT_VIDEO_FILE_ID: process.env.BYBIT_VIDEO_FILE_ID ? "Defined" : "Undefined",
-});
+
 
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
+const GROUP_CHAT_ID = process.env.CRYPTO_GROUP_CHAT_ID
 
 // MongoDB connection function
 async function connectDB() {
@@ -839,12 +833,12 @@ export default function (bot: Telegraf<BotContext>) {
         return;
       }
 
-      if (!process.env.GROUP_CHAT_ID) {
+      if (!GROUP_CHAT_ID) {
         throw new Error("GROUP_CHAT_ID is not defined");
       }
 
       const inviteLink = await bot.telegram.createChatInviteLink(
-        process.env.GROUP_CHAT_ID,
+        GROUP_CHAT_ID,
         {
           expire_date: Math.floor(Date.now() / 1000) + 1800,
           member_limit: 1,

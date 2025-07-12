@@ -1,4 +1,3 @@
-
 // import { Telegraf, Markup } from "telegraf";
 // import { message } from "telegraf/filters";
 // import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
@@ -13,17 +12,15 @@
 // import dotenv from 'dotenv';
 // dotenv.config();
 
-
-
 // // Export as default function that receives bot instance
 // export default function (bot: Telegraf<BotContext>) {
 //   // Add session setup at the BEGINNING
 //   if (mongoose.connection.readyState === 1) {
 //     const db = mongoose.connection.db;
 //     if (db) {
-//       bot.use(session(db, { 
-//         sessionName: 'session', 
-//         collectionName: 'forex_sessions' 
+//       bot.use(session(db, {
+//         sessionName: 'session',
+//         collectionName: 'forex_sessions'
 //       }));
 //       console.log("✅ Forex Bot MongoDB session connected");
 //     } else {
@@ -32,7 +29,6 @@
 //   } else {
 //     console.error("❌ Mongoose not connected. Forex session middleware skipped");
 //   }
-  
 
 //   // Replace the session middleware with:
 // bot.use(async (ctx, next) => {
@@ -40,7 +36,7 @@
 //   if (!ctx.session) {
 //     ctx.session = {
 //       step: 'welcome',
-//       botType: ctx.botType || 'forex' 
+//       botType: ctx.botType || 'forex'
 //     };
 //   }
 //   return next();
@@ -374,7 +370,7 @@
 
 //     await ctx.replyWithHTML(
 //       `<b>Final Confirmation</b>\n\n` +
-      
+
 //         `📌 <b>Your Details:</b>\n` +
 //         `${details}\n\n` +
 //         `👉 Click <b>CONFIRM</b> to submit your details for review.`,
@@ -445,20 +441,6 @@
 //     ctx.reply("❌ An error occurred. Please try again later.");
 //   });
 // }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // import { Telegraf, Markup } from "telegraf";
 // import { message } from "telegraf/filters";
@@ -979,10 +961,6 @@
 //   });
 // }
 
-
-
-
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
@@ -1000,14 +978,10 @@ dotenv.config({
   path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
 });
 
-// Log environment variables
-console.log("[Startup] Environment variables:", {
-  MONGODB_URI: process.env.MONGODB_URI ? "Defined" : "Undefined",
-  GROUP_CHAT_ID: process.env.GROUP_CHAT_ID ? "Defined" : "Undefined",
-  EXCO_LINK: process.env.EXCO_LINK ? "Defined" : "Undefined",
-  DERIV_LINK: process.env.DERIV_LINK ? "Defined" : "Undefined",
-});
 
+
+
+const GROUP_CHAT_ID = process.env.FOREX_GROUP_CHAT_ID
 // MongoDB connection function
 async function connectDB() {
   const mongoUri = process.env.MONGODB_URI;
@@ -1044,7 +1018,9 @@ export default function (bot: Telegraf<BotContext>) {
   if (mongoose.connection.readyState === 1) {
     const db = mongoose.connection.db;
     if (!db) {
-      console.error("❌ Mongoose connected but db is undefined. Forex session middleware skipped");
+      console.error(
+        "❌ Mongoose connected but db is undefined. Forex session middleware skipped"
+      );
     } else {
       bot.use(
         session(db, {
@@ -1055,7 +1031,9 @@ export default function (bot: Telegraf<BotContext>) {
       console.log("✅ Forex Bot MongoDB session middleware enabled");
     }
   } else {
-    console.error("❌ Mongoose not connected. Forex session middleware skipped");
+    console.error(
+      "❌ Mongoose not connected. Forex session middleware skipped"
+    );
   }
 
   bot.use(async (ctx, next) => {
@@ -1146,18 +1124,16 @@ export default function (bot: Telegraf<BotContext>) {
 
       const rejectionMessage =
         `<b>❌ Your registration was rejected.</b>\n\n` +
-        `👤 <b>Your Exco Trader Login ID:</b> <code>${user.excoTraderLoginId || "N/A"}</code>\n` +
+        `👤 <b>Your Exco Trader Login ID:</b> <code>${
+          user.excoTraderLoginId || "N/A"
+        }</code>\n` +
         `⚠️ <b>Reason:</b> ${reasonMessage}\n\n` +
         `📌 <b>This is your last trial.</b>\n\n` +
-        `${nextSteps}\n\n` 
-        // `👉 Alternatively, click <b>CONTINUE</b> to re-enter your Exco Trader Login ID.`;
+        `${nextSteps}\n\n`;
 
-      // await bot.telegram.sendMessage(user.telegramId, rejectionMessage, {
-      //   parse_mode: "HTML",
-      //   reply_markup: Markup.inlineKeyboard([
-      //     Markup.button.callback("🔵 CONTINUE", "continue_to_login_id"),
-      //   ]).reply_markup,
-      // });
+      await bot.telegram.sendMessage(user.telegramId, rejectionMessage, {
+        parse_mode: "HTML",
+      });
     }
   }
 
@@ -1177,7 +1153,10 @@ export default function (bot: Telegraf<BotContext>) {
         }
       });
     } catch (error) {
-      console.error("[watchUserStatusChanges] Error setting up change stream:", error);
+      console.error(
+        "[watchUserStatusChanges] Error setting up change stream:",
+        error
+      );
     }
   }
 
@@ -1210,7 +1189,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!userId || !session) {
-      logger.error(`[continue_to_captcha] Invalid userId (${userId}) or session not found`);
+      logger.error(
+        `[continue_to_captcha] Invalid userId (${userId}) or session not found`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Session expired or invalid. Please start over with /start.`
@@ -1219,7 +1200,9 @@ export default function (bot: Telegraf<BotContext>) {
     }
 
     if (session.step !== "welcome") {
-      logger.warn(`[continue_to_captcha] Invalid session step (${session.step}) for user ${userId}`);
+      logger.warn(
+        `[continue_to_captcha] Invalid session step (${session.step}) for user ${userId}`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1247,7 +1230,10 @@ export default function (bot: Telegraf<BotContext>) {
 
     try {
       await connectDB();
-      const user = await ForexUserModel.findOne({ telegramId, botType: "forex" });
+      const user = await ForexUserModel.findOne({
+        telegramId,
+        botType: "forex",
+      });
       if (!user || user.status !== "approved") {
         logger.warn("Unauthorized get_invite_link attempt", { telegramId });
         await ctx.replyWithHTML(
@@ -1257,12 +1243,12 @@ export default function (bot: Telegraf<BotContext>) {
         return;
       }
 
-      if (!process.env.GROUP_CHAT_ID) {
+      if (!GROUP_CHAT_ID) {
         throw new Error("GROUP_CHAT_ID is not defined");
       }
 
       const inviteLink = await bot.telegram.createChatInviteLink(
-        process.env.GROUP_CHAT_ID,
+        GROUP_CHAT_ID,
         {
           expire_date: Math.floor(Date.now() / 1000) + 1800,
           member_limit: 1,
@@ -1288,7 +1274,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!userId || !session) {
-      logger.error(`[confirm_final] Invalid userId (${userId}) or session not found`);
+      logger.error(
+        `[confirm_final] Invalid userId (${userId}) or session not found`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Session expired or invalid. Please start over with /start.`
@@ -1297,7 +1285,9 @@ export default function (bot: Telegraf<BotContext>) {
     }
 
     if (session.step !== "final_confirmation") {
-      logger.warn(`[confirm_final] Invalid session step (${session.step}) for user ${userId}`);
+      logger.warn(
+        `[confirm_final] Invalid session step (${session.step}) for user ${userId}`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1310,17 +1300,26 @@ export default function (bot: Telegraf<BotContext>) {
       session.step = "final";
     } catch (error: any) {
       logger.error(`[confirm_final] Error for user ${userId}:`, error);
-      let errorMessage = "🚫 Failed to submit your details. Please try again or contact an admin.";
+      let errorMessage =
+        "🚫 Failed to submit your details. Please try again or contact an admin.";
       if (error.message.includes("MONGODB_URI")) {
-        errorMessage = "🚫 Server configuration error (database). Please contact an admin.";
+        errorMessage =
+          "🚫 Server configuration error (database). Please contact an admin.";
       } else if (error.message.includes("GROUP_CHAT_ID")) {
-        errorMessage = "🚫 Server configuration error (group chat). Please contact an admin.";
+        errorMessage =
+          "🚫 Server configuration error (group chat). Please contact an admin.";
       } else if (error.message.includes("Country is missing")) {
-        errorMessage = "🚫 Missing country information. Please start over with /start.";
+        errorMessage =
+          "🚫 Missing country information. Please start over with /start.";
       } else if (error.message.includes("Exco Trader Login ID is missing")) {
-        errorMessage = "🚫 No Exco Trader Login ID provided. Please start over with /start.";
-      } else if (error.name === "MongooseError" || error.name === "MongoServerError") {
-        errorMessage = "🚫 Database connection issue. Please try again later or contact an admin.";
+        errorMessage =
+          "🚫 No Exco Trader Login ID provided. Please start over with /start.";
+      } else if (
+        error.name === "MongooseError" ||
+        error.name === "MongoServerError"
+      ) {
+        errorMessage =
+          "🚫 Database connection issue. Please try again later or contact an admin.";
       }
       await ctx.replyWithHTML(`<b>⚠️ Error</b>\n\n${errorMessage}`);
     }
@@ -1331,7 +1330,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!userId || !session || session.step !== "final_confirmation") {
-      logger.error(`[cancel_final] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(
+        `[cancel_final] Invalid userId (${userId}) or session step (${session?.step})`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid action. Please start over with /start.`
@@ -1404,7 +1405,9 @@ export default function (bot: Telegraf<BotContext>) {
             `📌 <b>Submit Exco Trader Login ID</b>\n` +
             `🔹 Check your email for your Login ID.\n` +
             `🔹 Enter your Login ID below after clicking Done.`,
-          Markup.inlineKeyboard([Markup.button.callback("✅ Done", "done_exco")])
+          Markup.inlineKeyboard([
+            Markup.button.callback("✅ Done", "done_exco"),
+          ])
         );
         break;
       }
@@ -1442,8 +1445,12 @@ export default function (bot: Telegraf<BotContext>) {
         session.derivLoginId = text;
         session.step = "final_confirmation";
         const details = [
-          `Exco Trader Login ID: ${session.excoTraderLoginId || "Not provided"}`,
-          session.derivLoginId ? `Deriv Login ID: ${session.derivLoginId}` : null,
+          `Exco Trader Login ID: ${
+            session.excoTraderLoginId || "Not provided"
+          }`,
+          session.derivLoginId
+            ? `Deriv Login ID: ${session.derivLoginId}`
+            : null,
         ]
           .filter(Boolean)
           .join("\n");
@@ -1490,7 +1497,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!session || session.step !== "captcha_confirmed") {
-      logger.error(`[continue_to_country] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(
+        `[continue_to_country] Invalid userId (${userId}) or session step (${session?.step})`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1500,8 +1509,7 @@ export default function (bot: Telegraf<BotContext>) {
 
     session.step = "country";
     await ctx.replyWithHTML(
-      `<b>🌍 Country Selection</b>\n\n` +
-        `What is your country of residence?`,
+      `<b>🌍 Country Selection</b>\n\n` + `What is your country of residence?`,
       Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]])
         .oneTime()
         .resize()
@@ -1513,7 +1521,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!session || session.step !== "waiting_for_done") {
-      logger.error(`[done_exco] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(
+        `[done_exco] Invalid userId (${userId}) or session step (${session?.step})`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1535,7 +1545,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!session || session.step !== "exco_confirmed") {
-      logger.error(`[continue_to_deriv] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(
+        `[continue_to_deriv] Invalid userId (${userId}) or session step (${session?.step})`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1563,7 +1575,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!session || session.step !== "deriv") {
-      logger.error(`[done_deriv] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(
+        `[done_deriv] Invalid userId (${userId}) or session step (${session?.step})`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1597,7 +1611,9 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!session || session.step !== "login_id") {
-      logger.error(`[continue_to_login_id] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(
+        `[continue_to_login_id] Invalid userId (${userId}) or session step (${session?.step})`
+      );
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1609,7 +1625,7 @@ export default function (bot: Telegraf<BotContext>) {
       `<b>🔹 Submit Your Exco Trader Login ID</b>\n\n` +
         `Please enter your <b>Exco Trader Login ID</b> below.\n\n` +
         `💡 <i>You can find it in the welcome email from Exco Trader.</i>\n` +
-        `📌 <b>Example:</b> <code>EX123456</code>`
+        `📌 <b>Example:</b> <code>5677123456</code>`
     );
   });
 
@@ -1629,7 +1645,9 @@ export default function (bot: Telegraf<BotContext>) {
         {
           telegramId,
           username: ctx.from.username || "unknown",
-          fullName: `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim() || "Unknown User",
+          fullName:
+            `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim() ||
+            "Unknown User",
           botType: "forex",
           country: session.country,
           excoTraderLoginId: session.excoTraderLoginId,
@@ -1658,7 +1676,10 @@ export default function (bot: Telegraf<BotContext>) {
   watchUserStatusChanges();
 
   bot.catch((err, ctx) => {
-    console.error(`🚨 Forex Bot Error for update ${ctx.update.update_id}:`, err);
+    console.error(
+      `🚨 Forex Bot Error for update ${ctx.update.update_id}:`,
+      err
+    );
     ctx.reply("❌ An error occurred. Please try again later.");
   });
 }
