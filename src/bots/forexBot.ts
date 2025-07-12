@@ -1136,7 +1136,7 @@ export default function (bot: Telegraf<BotContext>) {
 
       const nextSteps =
         user.rejectionReason === "no_affiliate_link"
-          ? `To proceed, please register a new Exco Trader account using our official link:\n` +
+          ? `To gain access to Afibie FX signals, register a new Exco Trader account using our affiliate  link:\n\n` +
             `👉 <a href="${process.env.EXCO_LINK}">Exco Trader Registration Link</a>\n\n` +
             `Once registered, click /start to begin again.`
           : user.rejectionReason === "insufficient_deposit"
@@ -1145,20 +1145,19 @@ export default function (bot: Telegraf<BotContext>) {
           : `Please contact an admin for assistance on next steps.`;
 
       const rejectionMessage =
-        `<b>❌ Sorry, your registration was rejected.</b>\n\n` +
+        `<b>❌ Your registration was rejected.</b>\n\n` +
         `👤 <b>Your Exco Trader Login ID:</b> <code>${user.excoTraderLoginId || "N/A"}</code>\n` +
         `⚠️ <b>Reason:</b> ${reasonMessage}\n\n` +
-        `📌 <b>This is your last trial.</b>\n` +
-        `<b>Next Steps:</b>\n` +
-        `${nextSteps}\n\n` +
-        `👉 Alternatively, click <b>CONTINUE</b> to re-enter your Exco Trader Login ID.`;
+        `📌 <b>This is your last trial.</b>\n\n` +
+        `${nextSteps}\n\n` 
+        // `👉 Alternatively, click <b>CONTINUE</b> to re-enter your Exco Trader Login ID.`;
 
-      await bot.telegram.sendMessage(user.telegramId, rejectionMessage, {
-        parse_mode: "HTML",
-        reply_markup: Markup.inlineKeyboard([
-          Markup.button.callback("🔵 CONTINUE", "continue_to_login_id"),
-        ]).reply_markup,
-      });
+      // await bot.telegram.sendMessage(user.telegramId, rejectionMessage, {
+      //   parse_mode: "HTML",
+      //   reply_markup: Markup.inlineKeyboard([
+      //     Markup.button.callback("🔵 CONTINUE", "continue_to_login_id"),
+      //   ]).reply_markup,
+      // });
     }
   }
 

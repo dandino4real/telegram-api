@@ -984,7 +984,6 @@ export default function (bot: Telegraf<BotContext>) {
             `<b>Final Confirmation</b>\n\n` +
               `📌 <b>Your Details:</b>\n` +
               `Blofin UID: ${session.blofinUid || "Not provided"}\n\n` +
-              `🎥 <b>Need help?</b> If you entered a Bybit UID earlier, check the step-by-step Bybit registration video above.\n` +
               `⚠️ <b>Not correct?</b> Type <b>/start</b> to restart the process.\n\n` +
               `👉 Click <b>Confirm</b> to submit or <b>Cancel</b> to start over.`,
             Markup.inlineKeyboard([
@@ -1055,13 +1054,14 @@ export default function (bot: Telegraf<BotContext>) {
 
     if (!VIDEO_FILE_ID) {
       await ctx.replyWithHTML(
+        `<b>👆👆👆</b>\n\n` +
         `<b>📈 Step 3: Bybit Registration</b>\n\n` +
           `<b>Why Bybit?</b>\n` +
           `📊 <i>Most Trustworthy Exchange</i>\n\n` +
           `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
           `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-          `✅ Watch the video above to learn how to register properly and gain access.\n\n` +
-          `\n\n<b>✅ Once done, click the "Done" button below to continue.</b>`,
+          `🎥 <b>Need help?</b> Watch the step-by-step guide in the video above 👆👆👆 to register.\n\n` +
+          `<b>✅ Once done, click the "Done" button below to continue.</b>\n\n`,
         Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
       );
       return;

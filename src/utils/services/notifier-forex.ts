@@ -13,7 +13,7 @@ export async function sendAdminAlertForex(user: IFOREX_User) {
 👤 <b>Username:</b> @${user.username || 'N/A'}
 🆔 <b>Telegram ID:</b> ${user.telegramId}
 📛 <b>Full Name:</b> ${user.fullName}
-🔑 <b>Login ID:</b> ${user.excoTraderLoginId || 'N/A'}
+🔑 <b>Exco Trader Login ID:</b> ${user.excoTraderLoginId || 'N/A'}
 ⏳ <b>Status:</b> Pending Approval
 `;
 
