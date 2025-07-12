@@ -869,8 +869,7 @@ export default function (bot: Telegraf<BotContext>) {
         if (session.requiresBoth) {
           session.step = "blofin_confirmed";
           await ctx.replyWithHTML(
-            `<b>✅ Bybit UID Submitted</b>\n` +
-              `You've provided your Bybit UID.\n\n` +
+            `<b>✅ You've provided your Bybit UID.</b>\n\n` +
               `👉 Click the <b>Continue</b> button to proceed with Blofin registration.`,
             Markup.inlineKeyboard([
               Markup.button.callback("🔵 CONTINUE", "continue_to_blofin"),

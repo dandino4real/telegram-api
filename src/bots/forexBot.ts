@@ -73,7 +73,7 @@ bot.use(async (ctx, next) => {
       await bot.telegram.sendMessage(
         user.telegramId,
           `<b>🎉 Congratulations!</b> Your registration has been approved. ✅\n\n` +
-          `🔗 <b>Welcome to Afibie Signal Group!</b> 🚀\n\n` +
+          `🔗 <b>Welcome to Afibie Fx Signals!</b> 🚀\n\n` +
           `👉 To get started, type <b>/getlink</b> to receive your exclusive invite link.\n\n` +
           `⚠️ <i>Note:</i> This link is time-sensitive and may expire soon.\n\n` +
           `🔥 <i>Enjoy your journey and happy trading!</i> 📈`,
@@ -140,7 +140,7 @@ bot.use(async (ctx, next) => {
         `📈 Afibie FX is an exclusive trading community where members gain access to high-quality trading signals, market insights, and expert strategies to maximize their profits.\n\n` +
         `<b>To gain access to Afibie FX Signals, please complete these steps:</b>\n\n` +
         `✅ <b>Step 1:</b> Solve the Captcha 🔢\n` +
-        `✅ <b>Step 2:</b> Register at Exco Trader, deposit $100 or more, and provide your Login ID 💰\n` +
+        `✅ <b>Step 2:</b> Register at Exco Trader, deposit <b>$100</b> or more, and provide your <b>Login ID</b> 💰\n` +
         `✅ <b>Step 3:</b> Create Deriv account (Optional) 📊\n\n` +
         `⏳ <b>Once all steps are completed, you will gain full access to Afibie FX Signals - where strategy meets profitability!</b> 💰📊\n\n` +
         `👉 Click <b>CONTINUE</b> to start:`,
@@ -243,7 +243,7 @@ bot.use(async (ctx, next) => {
             `📌 <b>Sign up here</b> 👉 <a href="${process.env.EXCO_LINK}">Exco Trader Registration Link</a>\n\n` +
             `✅ Click <b>Done</b> after completing your registration!\n\n` +
             `📌 <b>Deposit Requirement:</b>\n` +
-            `⚡ To gain access, deposit at least <b>$100</b> into your Exco Trader account.\n` +
+            `⚡ To gain access, deposit at least <b>$100</b> into your Exco Trader account.\n\n` +
             `💬 <i>Note: The Exco team may contact you to assist with setting up your account.</i>\n\n` +
             `📌 <b>Submit Exco Trader Login ID</b>\n` +
             `🔹 Check your email for your Login ID.\n` +
@@ -258,14 +258,14 @@ bot.use(async (ctx, next) => {
           await ctx.replyWithHTML(
             `❌ <b>Invalid Login ID</b>\n\n` +
               `🚫 Please enter a valid alphanumeric Login ID (5-20 characters).\n` +
-              `📌 <b>Example:</b> <code>EX123456</code>`
+              `📌 <b>Example:</b> <code>123456565</code>`
           );
           return;
         }
         session.excoTraderLoginId = text;
         session.step = "exco_confirmed";
         await ctx.replyWithHTML(
-          `<b>✅ Exco Trader Login ID Accepted!</b>\n\n` +
+          `<b>✅ You've provided your Exco Trader Login ID!</b>\n\n` +
             `👉 Click <b>CONTINUE</b> to proceed to Deriv registration (optional).`,
           Markup.inlineKeyboard([
             Markup.button.callback("🔵 CONTINUE", "continue_to_deriv"),
@@ -334,7 +334,7 @@ bot.use(async (ctx, next) => {
       `<b>🔹 Submit Your Exco Trader Login ID</b>\n\n` +
         `Please enter your <b>Exco Trader Login ID</b> below.\n\n` +
         `💡 <i>You can find it in the welcome email from Exco Trader.</i>\n` +
-        `📌 <b>Example:</b> <code>EX123456</code>`
+        `📌 <b>Example:</b> <code>123456456</code>`
     );
   });
 
@@ -351,29 +351,29 @@ bot.use(async (ctx, next) => {
         `Create a Deriv account to take Synthetic Trades 👉 <a href="${
           process.env.DERIV_LINK || "https://fxht.short.gy/DeTGB"
         }">Deriv Registration Link</a>\n\n` +
-        `✅ Click <b>Done</b> after registration to submit your Deriv Login ID, or <b>Skip</b> to proceed.`,
+        `✅ Click <b>Done</b> after registration, or <b>Skip</b> to proceed.`,
       Markup.inlineKeyboard([
         Markup.button.callback("✅ Done", "done_deriv"),
-        Markup.button.callback("⏭ Skip", "skip_deriv"),
+        Markup.button.callback("⏭ Skip", "done_deriv"),
       ])
     );
   });
 
+  // bot.action("done_deriv", async (ctx) => {
+  //   await ctx.answerCbQuery();
+  //   const userId = ctx.from?.id.toString();
+  //   const session = userSession[userId];
+  //   if (!session || session.step !== "deriv") return;
+
+  //   await ctx.replyWithHTML(
+  //     `<b>🔹 Submit Your Deriv Login ID</b>\n\n` +
+  //       `Please enter your <b>Deriv Login ID</b> below.\n\n` +
+  //       `💡 <i>You can find it in the welcome email from Deriv.</i>\n` +
+  //       `📌 <b>Example:</b> <code>DR123456</code>`
+  //   );
+  // });
+
   bot.action("done_deriv", async (ctx) => {
-    await ctx.answerCbQuery();
-    const userId = ctx.from?.id.toString();
-    const session = userSession[userId];
-    if (!session || session.step !== "deriv") return;
-
-    await ctx.replyWithHTML(
-      `<b>🔹 Submit Your Deriv Login ID</b>\n\n` +
-        `Please enter your <b>Deriv Login ID</b> below.\n\n` +
-        `💡 <i>You can find it in the welcome email from Deriv.</i>\n` +
-        `📌 <b>Example:</b> <code>DR123456</code>`
-    );
-  });
-
-  bot.action("skip_deriv", async (ctx) => {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
@@ -382,14 +382,14 @@ bot.use(async (ctx, next) => {
     session.step = "final_confirmation";
     const details = [
       `Exco Trader Login ID: ${session.excoTraderLoginId || "Not provided"}`,
-      session.derivLoginId ? `Deriv Login ID: ${session.derivLoginId}` : null,
+      // session.derivLoginId ? `Deriv Login ID: ${session.derivLoginId}` : null,
     ]
       .filter(Boolean)
       .join("\n");
 
     await ctx.replyWithHTML(
       `<b>Final Confirmation</b>\n\n` +
-        `🎉 All information has been accepted and stored successfully!\n\n` +
+      
         `📌 <b>Your Details:</b>\n` +
         `${details}\n\n` +
         `👉 Click <b>CONFIRM</b> to submit your details for review.`,
