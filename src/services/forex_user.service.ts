@@ -49,18 +49,23 @@ export const ForexUserService = {
       return updated;
     },
   
-    rejectUser: async (
-      userId: string,
-      admin: { name: string; email: string }
-    ) => {
-      const updated = await ForexUserRepository.rejectUser(
-        userId,
-        admin.name,
-        admin.email
-      );
-      if (!updated) throw new Error("User already processed or not found");
-      return updated;
-    },
+   rejectUser: async (
+    userId: string,
+    admin: { name: string; email: string },
+    rejectionReason: 'no_affiliate_link' | 'insufficient_deposit'
+  ) => {
+    if (!['no_affiliate_link', 'insufficient_deposit'].includes(rejectionReason)) {
+      throw new Error("Invalid rejection reason");
+    }
+    const updated = await ForexUserRepository.rejectUser(
+      userId,
+      admin.name,
+      admin.email,
+      rejectionReason
+    );
+    if (!updated) throw new Error("User already processed or not found");
+    return updated;
+  },
   
     deleteUserById: async (id: string) => {
       const user = await ForexUserRepository.deleteById(id);

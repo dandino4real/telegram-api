@@ -10,14 +10,14 @@ router.patch(
 '/forex/:id/approve',
 authenticateAdmin,
 authorizePermission('approve_registration'),
-ForexUserController.approveCryptoUser
+ForexUserController.approveForexUser
 );
 
 router.patch(
 '/forex/:id/reject',
 authenticateAdmin,
 authorizePermission('reject_registration'),
-ForexUserController.rejectCryptoUser
+ForexUserController.rejectForexUser
 );
 
 router.delete(

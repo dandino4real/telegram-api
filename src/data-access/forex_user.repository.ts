@@ -38,19 +38,20 @@ export const ForexUserRepository = {
       );
     },
   
-    rejectUser: async (id: string, name: string, email: string) => {
-      return ForexUserModel.findOneAndUpdate(
-        { _id: id, status: "pending" },
-        {
-          status: "rejected",
-          isApproved: false,
-          rejectedAt: new Date(),
-          rejectedBy: { name, email },
-          $unset: { approvedAt: "", approvedBy: "" },
-        },
-        { new: true }
-      );
-    },
+  rejectUser: async (id: string, name: string, email: string, rejectionReason: 'no_affiliate_link' | 'insufficient_deposit') => {
+    return ForexUserModel.findOneAndUpdate(
+      { _id: id, status: "pending" },
+      {
+        status: "rejected",
+        isApproved: false,
+        rejectedAt: new Date(),
+        rejectedBy: { name, email },
+        rejectionReason,
+        $unset: { approvedAt: "", approvedBy: "" },
+      },
+      { new: true }
+    );
+  },
   
       deleteById: async (id: string) => {
       return ForexUserModel.findByIdAndDelete(id);
