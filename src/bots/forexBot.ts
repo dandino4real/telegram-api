@@ -983,11 +983,6 @@
 
 
 
-
-
-
-
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
@@ -1189,7 +1184,10 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.start(async (ctx) => {
     const userId = ctx.from?.id.toString();
-    if (!userId) return;
+    if (!userId) {
+      logger.error("[start] No user ID found");
+      return;
+    }
 
     userSession[userId] = { step: "welcome", botType: "forex", retryCount: 0 };
 
@@ -1208,9 +1206,45 @@ export default function (bot: Telegraf<BotContext>) {
     );
   });
 
+  bot.action("continue_to_captcha", async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from?.id.toString();
+    const session = userSession[userId];
+    if (!userId || !session) {
+      logger.error(`[continue_to_captcha] Invalid userId (${userId}) or session not found`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Session expired or invalid. Please start over with /start.`
+      );
+      return;
+    }
+
+    if (session.step !== "welcome") {
+      logger.warn(`[continue_to_captcha] Invalid session step (${session.step}) for user ${userId}`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
+
+    session.step = "captcha";
+    const captcha = generateCaptcha();
+    session.captcha = captcha;
+
+    await ctx.replyWithHTML(
+      `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
+        `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
+        `👉 <b>Type this number:</b> <code>${captcha}</code>`
+    );
+  });
+
   bot.action("get_invite_link", getLinkLimiter, async (ctx) => {
     const telegramId = ctx.from?.id?.toString();
-    if (!telegramId) return;
+    if (!telegramId) {
+      logger.error("[get_invite_link] No user ID found");
+      return;
+    }
 
     try {
       await connectDB();
@@ -1250,12 +1284,55 @@ export default function (bot: Telegraf<BotContext>) {
     }
   });
 
+  bot.action("confirm_final", async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from?.id.toString();
+    const session = userSession[userId];
+    if (!userId || !session) {
+      logger.error(`[confirm_final] Invalid userId (${userId}) or session not found`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Session expired or invalid. Please start over with /start.`
+      );
+      return;
+    }
+
+    if (session.step !== "final_confirmation") {
+      logger.warn(`[confirm_final] Invalid session step (${session.step}) for user ${userId}`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
+
+    try {
+      await saveAndNotify(ctx, session);
+      session.step = "final";
+    } catch (error: any) {
+      logger.error(`[confirm_final] Error for user ${userId}:`, error);
+      let errorMessage = "🚫 Failed to submit your details. Please try again or contact an admin.";
+      if (error.message.includes("MONGODB_URI")) {
+        errorMessage = "🚫 Server configuration error (database). Please contact an admin.";
+      } else if (error.message.includes("GROUP_CHAT_ID")) {
+        errorMessage = "🚫 Server configuration error (group chat). Please contact an admin.";
+      } else if (error.message.includes("Country is missing")) {
+        errorMessage = "🚫 Missing country information. Please start over with /start.";
+      } else if (error.message.includes("Exco Trader Login ID is missing")) {
+        errorMessage = "🚫 No Exco Trader Login ID provided. Please start over with /start.";
+      } else if (error.name === "MongooseError" || error.name === "MongoServerError") {
+        errorMessage = "🚫 Database connection issue. Please try again later or contact an admin.";
+      }
+      await ctx.replyWithHTML(`<b>⚠️ Error</b>\n\n${errorMessage}`);
+    }
+  });
+
   bot.action("cancel_final", async (ctx) => {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     if (!userId || !session || session.step !== "final_confirmation") {
-      console.error(`[cancel_final] Invalid userId (${userId}) or session step (${session?.step})`);
+      logger.error(`[cancel_final] Invalid userId (${userId}) or session step (${session?.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid action. Please start over with /start.`
@@ -1280,10 +1357,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.on(message("text"), async (ctx) => {
     const userId = ctx.from?.id.toString();
-    if (!userId) return;
+    if (!userId) {
+      logger.error("[text] No user ID found");
+      return;
+    }
     const session = userSession[userId];
     const text = ctx.message.text.trim();
-    if (!session) return;
+    if (!session) {
+      logger.error("[text] No session found for user", { userId });
+      return;
+    }
 
     switch (session.step) {
       case "captcha": {
@@ -1407,7 +1490,14 @@ export default function (bot: Telegraf<BotContext>) {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== "captcha_confirmed") return;
+    if (!session || session.step !== "captcha_confirmed") {
+      logger.error(`[continue_to_country] Invalid userId (${userId}) or session step (${session?.step})`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
 
     session.step = "country";
     await ctx.replyWithHTML(
@@ -1423,7 +1513,14 @@ export default function (bot: Telegraf<BotContext>) {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== "waiting_for_done") return;
+    if (!session || session.step !== "waiting_for_done") {
+      logger.error(`[done_exco] Invalid userId (${userId}) or session step (${session?.step})`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
 
     session.step = "exco_login";
     await ctx.replyWithHTML(
@@ -1438,7 +1535,14 @@ export default function (bot: Telegraf<BotContext>) {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== "exco_confirmed") return;
+    if (!session || session.step !== "exco_confirmed") {
+      logger.error(`[continue_to_deriv] Invalid userId (${userId}) or session step (${session?.step})`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
 
     session.step = "deriv";
     await ctx.replyWithHTML(
@@ -1459,7 +1563,14 @@ export default function (bot: Telegraf<BotContext>) {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== "deriv") return;
+    if (!session || session.step !== "deriv") {
+      logger.error(`[done_deriv] Invalid userId (${userId}) or session step (${session?.step})`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
 
     session.step = "final_confirmation";
     const details = [
@@ -1486,7 +1597,14 @@ export default function (bot: Telegraf<BotContext>) {
     await ctx.answerCbQuery();
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== "login_id") return;
+    if (!session || session.step !== "login_id") {
+      logger.error(`[continue_to_login_id] Invalid userId (${userId}) or session step (${session?.step})`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
 
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Exco Trader Login ID</b>\n\n` +
@@ -1500,6 +1618,13 @@ export default function (bot: Telegraf<BotContext>) {
     const telegramId = ctx.from.id.toString();
     try {
       await connectDB();
+      if (!session.country) {
+        throw new Error("Country is missing in session data");
+      }
+      if (!session.excoTraderLoginId) {
+        throw new Error("Exco Trader Login ID is missing");
+      }
+
       const user = await ForexUserModel.findOneAndUpdate(
         { telegramId, botType: session.botType },
         {
