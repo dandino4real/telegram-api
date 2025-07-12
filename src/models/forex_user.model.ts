@@ -12,6 +12,7 @@ export interface IFOREX_User extends Document {
   createdAt: Date;
   approvedAt?: Date;
   rejectedAt?: Date;
+  rejectionReason?: "no_affiliate_link" | "insufficient_deposit";
   registeredVia?: "exco" ;
 
   approvedBy?: {
@@ -41,6 +42,11 @@ const UserSchema: Schema = new Schema({
   approvedAt: { type: Date },
   rejectedAt: { type: Date },
   registeredVia: { type: String, enum: ["exco"] },
+   rejectionReason: {
+    type: String,
+    enum: ["no_affiliate_link", "insufficient_deposit"],
+    required: false,
+  },
   approvedBy: {
     name: String,
     email: String,
