@@ -530,8 +530,6 @@
 
 
 
-
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -706,7 +704,7 @@ export default function (bot: Telegraf<BotContext>) {
       const inviteLink = await bot.telegram.createChatInviteLink(
         process.env.GROUP_CHAT_ID!,
         {
-          expire_date: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+          expire_date: Math.floor(Date.now() / 1000) + 1800,
           member_limit: 1,
         }
       );
@@ -716,7 +714,6 @@ export default function (bot: Telegraf<BotContext>) {
           `<a href="${inviteLink.invite_link}">${inviteLink.invite_link}</a>\n\n` +
           `⚠️ <i>This link can only be used once and will expire in 30 minutes.</i>`
       );
-      // Hide the button by editing the original message
       await ctx.editMessageReplyMarkup(undefined);
     } catch (error) {
       console.error("Error generating invite link:", error);
@@ -872,7 +869,7 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("continue_to_bybit", async (ctx) => {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== 'bybit_confirmed') return;
+    if (!session || session.step !== "bybit_confirmed") return;
 
     session.step = "bybit_link";
 
@@ -967,47 +964,95 @@ export default function (bot: Telegraf<BotContext>) {
   bot.action("confirm_final", async (ctx) => {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
-    if (!session || session.step !== "final_confirmation") return;
+    if (!userId || !session) {
+      console.error(`[confirm_final] Error: Invalid userId (${userId}) or session not found`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Session expired or invalid. Please start over with /start.`
+      );
+      return;
+    }
 
-    session.step = "final";
-    await saveAndNotify(ctx, session);
+    if (session.step !== "final_confirmation") {
+      console.error(`[confirm_final] Error: Invalid session step (${session.step}) for user ${userId}`);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Invalid step. Please start over with /start.`
+      );
+      return;
+    }
+
+    try {
+      session.step = "final";
+      await saveAndNotify(ctx, session);
+    } catch (error) {
+      console.error(`[confirm_final] Error for user ${userId}:`, error);
+      await ctx.replyWithHTML(
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Failed to submit your details. Please try again later or contact an admin.`
+      );
+    }
   });
 
   async function saveAndNotify(ctx: any, session: any) {
     const telegramId = ctx.from.id.toString();
-    const updatePayload: Partial<ICRYPTO_User> = {
-      telegramId,
-      username: ctx.from.username,
-      fullName: `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim(),
-      botType: "crypto",
-      country: session.country,
-      status: "pending",
-    };
+    try {
+      console.log(`[saveAndNotify] Processing for user ${telegramId}, session:`, session);
 
-    if (session.bybitUid) {
-      updatePayload.bybitUid = session.bybitUid;
-      updatePayload.registeredVia = session.requiresBoth ? "both" : "bybit";
-    }
-    if (session.blofinUid) {
-      updatePayload.blofinUid = session.blofinUid;
-      if (!session.bybitUid) {
-        updatePayload.registeredVia = "blofin";
+      // Validate required environment variables
+      if (!process.env.GROUP_CHAT_ID) {
+        throw new Error("GROUP_CHAT_ID is not defined in environment variables");
       }
+
+      // Validate session data
+      if (!session.country) {
+        throw new Error("Country is missing in session data");
+      }
+
+      const updatePayload: Partial<ICRYPTO_User> = {
+        telegramId,
+        username: ctx.from.username || "unknown",
+        fullName: `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim() || "Unknown User",
+        botType: "crypto",
+        country: session.country,
+        status: "pending",
+      };
+
+      if (session.bybitUid) {
+        updatePayload.bybitUid = session.bybitUid;
+        updatePayload.registeredVia = session.requiresBoth ? "both" : "bybit";
+      }
+      if (session.blofinUid) {
+        updatePayload.blofinUid = session.blofinUid;
+        if (!session.bybitUid) {
+          updatePayload.registeredVia = "blofin";
+        }
+      }
+
+      console.log(`[saveAndNotify] Saving user data for ${telegramId}:`, updatePayload);
+
+      // Save to MongoDB
+      const user = await CryptoUserModel.findOneAndUpdate(
+        { telegramId, botType: session.botType },
+        updatePayload,
+        { upsert: true, new: true }
+      );
+
+      console.log(`[saveAndNotify] User saved successfully:`, user);
+
+      await ctx.replyWithHTML(
+        `<b>✅ Submission Successful!</b>\n\n` +
+          `⏳ <b>Please wait</b> while your details are being reviewed (Allow 24 hours).\n\n` +
+          `📌 <i>You will receive a link to join the signal channel once approved.</i>\n\n`
+      );
+
+      console.log(`[saveAndNotify] Sending admin alert for user ${telegramId}`);
+      await sendAdminAlertCrypto(user);
+      console.log(`[saveAndNotify] Admin alert sent successfully for user ${telegramId}`);
+    } catch (error) {
+      console.error(`[saveAndNotify] Error for user ${telegramId}:`, error);
+      throw error; // Re-throw to be caught by confirm_final
     }
-
-    const user = await CryptoUserModel.findOneAndUpdate(
-      { telegramId, botType: session.botType },
-      updatePayload,
-      { upsert: true, new: true }
-    );
-
-    await ctx.replyWithHTML(
-      `<b>✅ Submission Successful!</b>\n\n` +
-        `⏳ <b>Please wait</b> while your details are being reviewed (Allow 24 hours).\n\n` +
-        `📌 <i>you will receive a link to join the signal channel once approved.</i>\n\n`
-    );
-
-    await sendAdminAlertCrypto(user);
   }
 
   watchUserStatusChanges();
