@@ -723,6 +723,7 @@ export default function (bot: Telegraf<BotContext>) {
       const registerLink = isBybit ? process.env.BYBIT_LINK : process.env.BLOFIN_LINK;
 
       const caption =
+        `<b>👆👆👆</b>\n\n` +
         `<b>🚫 Application Rejected</b>\n\n` +
         `👤 <b>Your ${uidType} UID:</b> <code>${userUid}</code>\n` +
         `⚠️ <i>This UID was not registered using our affiliate link.</i>\n\n` +
@@ -730,7 +731,7 @@ export default function (bot: Telegraf<BotContext>) {
         `1️⃣ <b>Create a new ${uidType} account</b> using our official affiliate link below:\n` +
         `<a href="${registerLink}">🔗 Register Here</a>\n\n` +
         `2️⃣ After registration, <b>click /start</b> to begin the process again.\n\n` +
-        `🎥 <b>Need help?</b> Watch the step-by-step guide in the video above.\n\n` +
+         `🎥 <b>Need help?</b> Watch the step-by-step guide in the video above 👆👆👆 to register.\n\n` +
         `<i>Thank you for your understanding and cooperation!</i> 🙏`;
 
       try {
@@ -1048,13 +1049,13 @@ export default function (bot: Telegraf<BotContext>) {
 
     if (!VIDEO_FILE_ID) {
       await ctx.replyWithHTML(
-        `<b>👆👆👆</b>\n\n` +
+       
         `<b>📈 Step 3: Bybit Registration</b>\n\n` +
           `<b>Why Bybit?</b>\n` +
           `📊 <i>Most Trustworthy Exchange</i>\n\n` +
           `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
           `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-          `🎥 <b>Need help?</b> Watch the step-by-step guide in the video above 👆👆👆 to register.\n\n` +
+         
           `<b>✅ Once done, click the "Done" button below to continue.</b>\n\n`,
         Markup.inlineKeyboard([Markup.button.callback("🔵 Done", "done_bybit")])
       );
@@ -1064,12 +1065,13 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       await ctx.replyWithVideo(VIDEO_FILE_ID, {
         caption:
+         `<b>👆👆👆</b>\n\n` +
           `<b>📈 Step 3: Bybit Registration</b>\n\n` +
           `<b>Why Bybit?</b>\n` +
           `📊 <i>Most Trustworthy Exchange</i>\n\n` +
           `📌 <b>Sign up here</b> 👉 <a href="${process.env.BYBIT_LINK}">Bybit Registration Link</a>\n\n` +
           `❗ <b>Important:</b> If you already have a Bybit account, you <u>cannot</u> gain access.\n\n` +
-          `✅ Watch the video above to learn how to register properly and gain access.` +
+          `🎥 <b>Need help?</b> Watch the step-by-step guide in the video above 👆👆👆 to register.\n\n` +
           `✅ Once done, click the <b>Done</b> button to continue.`,
         parse_mode: "HTML",
         reply_markup: Markup.inlineKeyboard([
