@@ -537,7 +537,6 @@
 
 
 
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -550,14 +549,55 @@ import { session } from "telegraf-session-mongodb";
 import { BotContext } from "../telegrafContext";
 import dotenv from "dotenv";
 
-dotenv.config();
+dotenv.config({
+  path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
+});
+
+// Log environment variables at startup (sanitize sensitive data)
+console.log("[Startup] Environment variables:", {
+  MONGODB_URI: process.env.MONGODB_URI ? "Defined" : "Undefined",
+  GROUP_CHAT_ID: process.env.GROUP_CHAT_ID ? "Defined" : "Undefined",
+  BYBIT_LINK: process.env.BYBIT_LINK ? "Defined" : "Undefined",
+  BLOFIN_LINK: process.env.BLOFIN_LINK ? "Defined" : "Undefined",
+  BYBIT_VIDEO_FILE_ID: process.env.BYBIT_VIDEO_FILE_ID ? "Defined" : "Undefined",
+});
 
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
+
+// MongoDB connection function
+async function connectDB() {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error("MONGODB_URI is not defined in environment variables");
+  }
+
+  console.log("Connecting to MongoDB...");
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      await mongoose.connect(mongoUri, {
+        retryWrites: true,
+        writeConcern: { w: "majority" },
+        connectTimeoutMS: 15000, // Increased to 15s
+        serverSelectionTimeoutMS: 10000, // Increased to 10s
+        socketTimeoutMS: 60000, // Increased to 60s
+        maxPoolSize: 10, // Connection pooling for serverless
+      });
+      console.log("✅ MongoDB connected successfully");
+    }
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err);
+    throw err;
+  }
+}
+
+// Initialize MongoDB connection
+connectDB().catch((error) => {
+  console.error("[Startup] Failed to initialize MongoDB:", error);
+});
+
 export default function (bot: Telegraf<BotContext>) {
   // Session setup
-  if (mongoose.connection.readyState !== 1) {
-    console.error("❌ Mongoose not connected. Crypto session middleware skipped");
-  } else {
+  if (mongoose.connection.readyState === 1) {
     const db = mongoose.connection.db;
     if (!db) {
       console.error("❌ Mongoose connected but db is undefined. Crypto session middleware skipped");
@@ -568,8 +608,10 @@ export default function (bot: Telegraf<BotContext>) {
           collectionName: "crypto_sessions",
         })
       );
-      console.log("✅ Crypto Bot MongoDB session connected");
+      console.log("✅ Crypto Bot MongoDB session middleware enabled");
     }
+  } else {
+    console.error("❌ Mongoose not connected. Crypto session middleware skipped");
   }
 
   bot.use(async (ctx, next) => {
@@ -706,6 +748,9 @@ export default function (bot: Telegraf<BotContext>) {
     }
 
     try {
+      // Ensure MongoDB connection
+      await connectDB();
+
       const user = await CryptoUserModel.findOne({
         telegramId: tgId,
         botType: "crypto",
@@ -1008,8 +1053,9 @@ export default function (bot: Telegraf<BotContext>) {
     }
 
     try {
+      await connectDB(); // Ensure MongoDB connection before operation
       await saveAndNotify(ctx, session);
-      session.step = "final"; // Move step change here, after successful saveAndNotify
+      session.step = "final"; // Move step change here
     } catch (error: any) {
       console.error(`[confirm_final] Error for user ${userId}:`, error);
       let errorMessage = "🚫 Failed to submit your details. Please try again or contact an admin.";
@@ -1021,8 +1067,8 @@ export default function (bot: Telegraf<BotContext>) {
         errorMessage = "🚫 Missing country information. Please start over with /start.";
       } else if (error.message.includes("UID must be provided")) {
         errorMessage = "🚫 No Bybit or Blofin UID provided. Please start over with /start.";
-      } else if (error.name === "MongoServerError") {
-        errorMessage = "🚫 Database error. Please try again later or contact an admin.";
+      } else if (error.name === "MongooseError" || error.name === "MongoServerError") {
+        errorMessage = "🚫 Database connection issue. Please try again later or contact an admin.";
       }
       await ctx.replyWithHTML(`<b>⚠️ Error</b>\n\n${errorMessage}`);
     }
@@ -1071,11 +1117,11 @@ export default function (bot: Telegraf<BotContext>) {
 
       console.log(`[saveAndNotify] Saving user data for ${telegramId}:`, updatePayload);
 
-      // Save to MongoDB
+      // Save to MongoDB with increased timeout
       const user = await CryptoUserModel.findOneAndUpdate(
         { telegramId, botType: session.botType },
         updatePayload,
-        { upsert: true, new: true }
+        { upsert: true, new: true, maxTimeMS: 20000 } // Increase timeout to 20s
       );
 
       console.log(`[saveAndNotify] User saved successfully:`, user);

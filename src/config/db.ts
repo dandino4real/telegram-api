@@ -41,11 +41,18 @@ export async function connectDB() {
   console.log("Connecting to MongoDB...");
   try {
     await mongoose.connect(mongoUri, {
+      // retryWrites: true,
+      // writeConcern: { w: "majority" },
+      // connectTimeoutMS: 10000,
+      // serverSelectionTimeoutMS: 5000,
+      // socketTimeoutMS: 45000,
+
       retryWrites: true,
-      writeConcern: { w: "majority" },
-      connectTimeoutMS: 10000,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
+        writeConcern: { w: "majority" },
+        connectTimeoutMS: 15000, // Increased to 15s
+        serverSelectionTimeoutMS: 10000, // Increased to 10s
+        socketTimeoutMS: 60000, // Increased to 60s
+        maxPoolSize: 10, // Connection pooling for serverless
     });
     console.log("✅ MongoDB connected successfully");
   } catch (err) {
