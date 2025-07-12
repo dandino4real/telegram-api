@@ -530,6 +530,14 @@
 
 
 
+
+
+
+
+
+
+
+
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -547,9 +555,13 @@ dotenv.config();
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
 export default function (bot: Telegraf<BotContext>) {
   // Session setup
-  if (mongoose.connection.readyState === 1) {
+  if (mongoose.connection.readyState !== 1) {
+    console.error("❌ Mongoose not connected. Crypto session middleware skipped");
+  } else {
     const db = mongoose.connection.db;
-    if (db) {
+    if (!db) {
+      console.error("❌ Mongoose connected but db is undefined. Crypto session middleware skipped");
+    } else {
       bot.use(
         session(db, {
           sessionName: "session",
@@ -557,11 +569,7 @@ export default function (bot: Telegraf<BotContext>) {
         })
       );
       console.log("✅ Crypto Bot MongoDB session connected");
-    } else {
-      console.error("❌ Mongoose connected but db is undefined. Crypto session middleware skipped");
     }
-  } else {
-    console.error("❌ Mongoose not connected. Crypto session middleware skipped");
   }
 
   bot.use(async (ctx, next) => {
@@ -624,20 +632,24 @@ export default function (bot: Telegraf<BotContext>) {
           });
         }
       } catch (error) {
-        console.error("Error sending rejection message:", error);
+        console.error("[notifyUserOnStatusChange] Error sending rejection message:", error);
       }
     }
   }
 
   async function watchUserStatusChanges() {
-    const changeStream = CryptoUserModel.watch([], {
-      fullDocument: "updateLookup",
-    });
-    changeStream.on("change", (change) => {
-      if (change.operationType === "update" && change.updateDescription.updatedFields?.status) {
-        notifyUserOnStatusChange(change);
-      }
-    });
+    try {
+      const changeStream = CryptoUserModel.watch([], {
+        fullDocument: "updateLookup",
+      });
+      changeStream.on("change", (change) => {
+        if (change.operationType === "update" && change.updateDescription.updatedFields?.status) {
+          notifyUserOnStatusChange(change);
+        }
+      });
+    } catch (error) {
+      console.error("[watchUserStatusChanges] Error setting up change stream:", error);
+    }
   }
 
   const getLinkLimiter = rateLimit({
@@ -648,7 +660,10 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.start(async (ctx) => {
     const userId = ctx.from?.id.toString();
-    if (!userId) return;
+    if (!userId) {
+      console.error("[start] No user ID found");
+      return;
+    }
 
     userSession[userId] = { step: "welcome", botType: "crypto" };
 
@@ -685,24 +700,31 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("get_invite_link", getLinkLimiter, async (ctx) => {
     const tgId = ctx.from?.id?.toString();
-    if (!tgId) return;
-
-    const user = await CryptoUserModel.findOne({
-      telegramId: tgId,
-      botType: "crypto",
-    });
-    if (!user || user.status !== "approved") {
-      await ctx.replyWithHTML(
-        `<b>⚠️ Access Denied</b>\n\n` +
-          `⛔ <i>Your access link has expired or you are not yet approved.</i>\n` +
-          `📩 Please contact an admin for assistance.`
-      );
+    if (!tgId) {
+      console.error("[get_invite_link] No user ID found");
       return;
     }
 
     try {
+      const user = await CryptoUserModel.findOne({
+        telegramId: tgId,
+        botType: "crypto",
+      });
+      if (!user || user.status !== "approved") {
+        await ctx.replyWithHTML(
+          `<b>⚠️ Access Denied</b>\n\n` +
+            `⛔ <i>Your access link has expired or you are not yet approved.</i>\n` +
+            `📩 Please contact an admin for assistance.`
+        );
+        return;
+      }
+
+      if (!process.env.GROUP_CHAT_ID) {
+        throw new Error("GROUP_CHAT_ID is not defined");
+      }
+
       const inviteLink = await bot.telegram.createChatInviteLink(
-        process.env.GROUP_CHAT_ID!,
+        process.env.GROUP_CHAT_ID,
         {
           expire_date: Math.floor(Date.now() / 1000) + 1800,
           member_limit: 1,
@@ -716,7 +738,7 @@ export default function (bot: Telegraf<BotContext>) {
       );
       await ctx.editMessageReplyMarkup(undefined);
     } catch (error) {
-      console.error("Error generating invite link:", error);
+      console.error("[get_invite_link] Error for user", tgId, ":", error);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Failed to generate invite link. Please try again later or contact an admin.`
@@ -728,7 +750,10 @@ export default function (bot: Telegraf<BotContext>) {
     const userId = ctx.from?.id.toString();
     const session = userSession[userId];
     const text = ctx.message.text.trim();
-    if (!session) return;
+    if (!session || !userId) {
+      console.error("[text] No session or userId found:", { userId, session });
+      return;
+    }
 
     switch (session.step) {
       case "captcha": {
@@ -903,7 +928,7 @@ export default function (bot: Telegraf<BotContext>) {
         ]).reply_markup,
       });
     } catch (error) {
-      console.error("Error sending video:", error);
+      console.error("[continue_to_bybit] Error sending video:", error);
       await ctx.replyWithHTML(
         `<b>📈 Step 3: Bybit Registration</b>\n\n` +
           `<b>Why Bybit?</b>\n` +
@@ -977,20 +1002,29 @@ export default function (bot: Telegraf<BotContext>) {
       console.error(`[confirm_final] Error: Invalid session step (${session.step}) for user ${userId}`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
-          `🚫 Invalid step. Please start over with /start.`
+          `🚫 Invalid step. Please start over with /start or try again.`
       );
       return;
     }
 
     try {
-      session.step = "final";
       await saveAndNotify(ctx, session);
-    } catch (error) {
+      session.step = "final"; // Move step change here, after successful saveAndNotify
+    } catch (error: any) {
       console.error(`[confirm_final] Error for user ${userId}:`, error);
-      await ctx.replyWithHTML(
-        `<b>⚠️ Error</b>\n\n` +
-          `🚫 Failed to submit your details. Please try again later or contact an admin.`
-      );
+      let errorMessage = "🚫 Failed to submit your details. Please try again or contact an admin.";
+      if (error.message.includes("MONGODB_URI")) {
+        errorMessage = "🚫 Server configuration error (database). Please contact an admin.";
+      } else if (error.message.includes("GROUP_CHAT_ID")) {
+        errorMessage = "🚫 Server configuration error (group chat). Please contact an admin.";
+      } else if (error.message.includes("Country is missing")) {
+        errorMessage = "🚫 Missing country information. Please start over with /start.";
+      } else if (error.message.includes("UID must be provided")) {
+        errorMessage = "🚫 No Bybit or Blofin UID provided. Please start over with /start.";
+      } else if (error.name === "MongoServerError") {
+        errorMessage = "🚫 Database error. Please try again later or contact an admin.";
+      }
+      await ctx.replyWithHTML(`<b>⚠️ Error</b>\n\n${errorMessage}`);
     }
   });
 
@@ -999,7 +1033,10 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       console.log(`[saveAndNotify] Processing for user ${telegramId}, session:`, session);
 
-      // Validate required environment variables
+      // Validate environment variables
+      if (!process.env.MONGODB_URI) {
+        throw new Error("MONGODB_URI is not defined in environment variables");
+      }
       if (!process.env.GROUP_CHAT_ID) {
         throw new Error("GROUP_CHAT_ID is not defined in environment variables");
       }
@@ -1007,6 +1044,9 @@ export default function (bot: Telegraf<BotContext>) {
       // Validate session data
       if (!session.country) {
         throw new Error("Country is missing in session data");
+      }
+      if (!session.bybitUid && !session.blofinUid) {
+        throw new Error("At least one UID (Bybit or Blofin) must be provided");
       }
 
       const updatePayload: Partial<ICRYPTO_User> = {
@@ -1051,7 +1091,7 @@ export default function (bot: Telegraf<BotContext>) {
       console.log(`[saveAndNotify] Admin alert sent successfully for user ${telegramId}`);
     } catch (error) {
       console.error(`[saveAndNotify] Error for user ${telegramId}:`, error);
-      throw error; // Re-throw to be caught by confirm_final
+      throw error;
     }
   }
 
