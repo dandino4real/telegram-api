@@ -1542,7 +1542,6 @@ dotenv.config({
 
 const GROUP_CHAT_ID = process.env.FOREX_GROUP_CHAT_ID;
 
-// MongoDB connection function
 async function connectDB() {
   const mongoUri = process.env.MONGODB_URI;
   if (!mongoUri) {
