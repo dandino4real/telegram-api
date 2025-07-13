@@ -15,7 +15,7 @@ dotenv.config({
 });
 
 const VIDEO_FILE_ID = process.env.BYBIT_VIDEO_FILE_ID;
-const GROUP_CHAT_ID = process.env.CRYPTO_GROUP_CHAT_ID;
+const GROUP_CHAT_ID = process.env.CRYPTO_GROUP_CHAT_ID;  
 
 // MongoDB connection function
 async function connectDB() {

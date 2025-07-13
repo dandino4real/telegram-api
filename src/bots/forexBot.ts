@@ -1261,7 +1261,7 @@ export default function (bot: Telegraf<BotContext>) {
           `<b>Final Confirmation</b>\n\n` +
             `📌 <b>Your Details:</b>\n` +
             `${details}\n\n` +
-            `⚠️ <b>Not correct?</b> Type <b>/start</b> to restart the process.\n\n` +
+            ` <b>correct?</b>\n` +
             `👉 Click <b>Confirm</b> to submit or <b>Cancel</b> to start over.`,
           Markup.inlineKeyboard([
             Markup.button.callback("🔵 CONFIRM", "confirm_final"),
@@ -1429,7 +1429,7 @@ export default function (bot: Telegraf<BotContext>) {
   async function saveAndNotify(ctx: any, session: any) {
     const telegramId = ctx.from.id.toString();
     try {
-      await connectDB();
+      // await connectDB();
       if (!session.country) {
         throw new Error("Country is missing in session data");
       }
