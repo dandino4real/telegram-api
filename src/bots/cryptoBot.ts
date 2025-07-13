@@ -701,6 +701,7 @@
 
 
 
+
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { ICRYPTO_User, CryptoUserModel } from "../models/crypto_user.model";
@@ -776,11 +777,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   // Initialize session with default values
   bot.use(async (ctx, next) => {
-    if (!ctx.session) {
+    // Ensure session exists with proper structure
+    if (!ctx.session || typeof ctx.session !== "object") {
       ctx.session = {
         step: "welcome",
-        botType: ctx.botType || "crypto",
+        botType: "crypto",
       };
+    } else {
+      // Ensure session has required properties
+      ctx.session.step = ctx.session.step || "welcome";
+      ctx.session.botType = ctx.session.botType || "crypto";
     }
     return next();
   });
@@ -901,6 +907,9 @@ export default function (bot: Telegraf<BotContext>) {
     const captcha = generateCaptcha();
     ctx.session.captcha = captcha;
 
+    // Force session save
+    ctx.session = { ...ctx.session };
+
     await ctx.replyWithHTML(
       `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
         `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
@@ -987,10 +996,22 @@ export default function (bot: Telegraf<BotContext>) {
     const text = ctx.message.text.trim();
     const session = ctx.session;
 
+    console.log(`Received text: ${text} in step: ${session.step}`); // Debug log
+
     switch (session.step) {
       case "captcha": {
-        if (verifyCaptcha(text, session.captcha ?? "")) {
+        // Ensure captcha exists in session
+        if (!session.captcha) {
+          console.error("Captcha not found in session");
+          await ctx.reply("Session error. Please start over with /start");
+          return;
+        }
+
+        if (verifyCaptcha(text, session.captcha)) {
           session.step = "captcha_confirmed";
+          // Force session update
+          ctx.session = { ...session };
+
           await ctx.replyWithHTML(
             `✅ <b>Correct!</b>\n\n` +
               `You've passed the captcha verification.\n\n` +
@@ -1002,6 +1023,9 @@ export default function (bot: Telegraf<BotContext>) {
         } else {
           const newCaptcha = generateCaptcha();
           session.captcha = newCaptcha;
+          // Force session update
+          ctx.session = { ...session };
+
           await ctx.replyWithHTML(
             `❌ <b>Incorrect Captcha</b>\n\n` +
               `🚫 Please try again:\n` +
@@ -1031,26 +1055,24 @@ export default function (bot: Telegraf<BotContext>) {
         if (isUSA || isUK || isCanada) {
           session.step = "blofin_confirmed";
           session.requiresBoth = false;
-          await ctx.replyWithHTML(
-            `<b>🌍 Country Selected: ${text}</b>\n\n` +
-              `You've chosen your country.\n\n` +
-              `👉 Click the <b>Continue</b> button to proceed with Blofin registration.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_blofin"),
-            ])
-          );
         } else {
           session.step = "bybit_confirmed";
           session.requiresBoth = true;
-          await ctx.replyWithHTML(
-            `<b>🌍 Country Selected: ${text}</b>\n\n` +
-              `You've chosen your country.\n\n` +
-              `👉 Click the <b>Continue</b> button to proceed with Bybit registration. You will also need to register with Blofin.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_bybit"),
-            ])
-          );
         }
+        
+        // Force session update
+        ctx.session = { ...session };
+
+        await ctx.replyWithHTML(
+          `<b>🌍 Country Selected: ${text}</b>\n\n` +
+            `You've chosen your country.\n\n` +
+            `👉 Click the <b>Continue</b> button to proceed.`,
+          Markup.inlineKeyboard([
+            Markup.button.callback("🔵 CONTINUE", 
+              session.requiresBoth ? "continue_to_bybit" : "continue_to_blofin"
+            ),
+          ])
+        );
         break;
       }
 
@@ -1066,6 +1088,14 @@ export default function (bot: Telegraf<BotContext>) {
         session.bybitUid = text;
         if (session.requiresBoth) {
           session.step = "blofin_confirmed";
+        } else {
+          session.step = "final_confirmation";
+        }
+        
+        // Force session update
+        ctx.session = { ...session };
+
+        if (session.requiresBoth) {
           await ctx.replyWithHTML(
             `<b>✅ You've provided your Bybit UID.</b>\n\n` +
               `👉 Click the <b>Continue</b> button to proceed with Blofin registration.`,
@@ -1074,7 +1104,6 @@ export default function (bot: Telegraf<BotContext>) {
             ])
           );
         } else {
-          session.step = "final_confirmation";
           await ctx.replyWithHTML(
             `<b>Final Confirmation</b>\n\n` +
               `📌 <b>Your Details:</b>\n` +
@@ -1101,14 +1130,20 @@ export default function (bot: Telegraf<BotContext>) {
         }
         session.blofinUid = text;
         session.step = "final_confirmation";
+        
+        // Force session update
+        ctx.session = { ...session };
+
         const details = session.requiresBoth
           ? `Bybit UID: ${session.bybitUid || "Not provided"}\nBlofin UID: ${
               session.blofinUid || "Not provided"
             }`
           : `Blofin UID: ${session.blofinUid || "Not provided"}`;
+        
         const videoPrompt = session.bybitUid
           ? `🎥 <b>Need help?</b> Check the step-by-step Bybit registration video above.\n`
           : "";
+        
         await ctx.replyWithHTML(
           `<b>✅ Blofin UID Submitted</b>\n\n` +
             `Final Confirmation\n\n` +
@@ -1131,6 +1166,9 @@ export default function (bot: Telegraf<BotContext>) {
     if (ctx.session.step !== "captcha_confirmed") return;
 
     ctx.session.step = "country";
+    // Force session update
+    ctx.session = { ...ctx.session };
+
     await ctx.replyWithHTML(
       `<b>🚀 Step 2: Country Selection</b>\n\n` +
         `🌍 What is your country of residence?`,
@@ -1144,6 +1182,8 @@ export default function (bot: Telegraf<BotContext>) {
     if (ctx.session.step !== "bybit_confirmed") return;
 
     ctx.session.step = "bybit_link";
+    // Force session update
+    ctx.session = { ...ctx.session };
 
     if (!VIDEO_FILE_ID) {
       await ctx.replyWithHTML(
@@ -1201,6 +1241,8 @@ export default function (bot: Telegraf<BotContext>) {
     ctx.session.step = "blofin_link";
     // Dynamically set step number: 3 for USA/UK/Canada (requiresBoth = false), 4 for others
     const stepNumber = ctx.session.requiresBoth ? 4 : 3;
+    // Force session update
+    ctx.session = { ...ctx.session };
 
     await ctx.replyWithHTML(
       `<b>🚀 Step ${stepNumber}: Blofin Registration</b>\n\n` +
@@ -1216,6 +1258,9 @@ export default function (bot: Telegraf<BotContext>) {
     if (ctx.session.step !== "bybit_link") return;
 
     ctx.session.step = "bybit_uid";
+    // Force session update
+    ctx.session = { ...ctx.session };
+
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Bybit UID</b>\n\n` +
         `Please enter your <b>Bybit UID</b> below to proceed.\n\n` +
@@ -1228,6 +1273,9 @@ export default function (bot: Telegraf<BotContext>) {
     if (ctx.session.step !== "blofin_link") return;
 
     ctx.session.step = "blofin_uid";
+    // Force session update
+    ctx.session = { ...ctx.session };
+
     await ctx.replyWithHTML(
       `<b>🔹 Submit Your Blofin UID</b>\n\n` +
         `Please enter your <b>Blofin UID</b> below to continue.\n\n` +
@@ -1285,6 +1333,7 @@ export default function (bot: Telegraf<BotContext>) {
     }
   });
 
+  // Define saveAndNotify function
   async function saveAndNotify(ctx: any, session: any) {
     const telegramId = ctx.from.id.toString();
     try {

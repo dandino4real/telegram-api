@@ -1523,7 +1523,6 @@
 // }
 
 
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
@@ -2007,6 +2006,18 @@ export default function (bot: Telegraf<BotContext>) {
                         `👉 Type this number: <code>${newCaptcha}</code>`
                     );
                 }
+                break;
+            }
+
+            // FIXED: ADDED HANDLER FOR CAPTCHA_CONFIRMED STATE
+            case "captcha_confirmed": {
+                await ctx.replyWithHTML(
+                    `✅ <b>You've already passed captcha verification!</b>\n\n` +
+                    `👉 Please click the CONTINUE button to proceed.`,
+                    Markup.inlineKeyboard([
+                        Markup.button.callback("🔵 CONTINUE", "continue_to_country"),
+                    ])
+                );
                 break;
             }
 
