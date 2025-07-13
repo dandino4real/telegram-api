@@ -1448,7 +1448,6 @@ export default function (bot: Telegraf<BotContext>) {
           botType: "forex",
           country: session.country,
           excoTraderLoginId: session.excoTraderLoginId,
-          derivLoginId: session.derivLoginId,
           status: "pending",
         },
         { upsert: true, new: true }
