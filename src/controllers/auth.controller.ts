@@ -191,7 +191,7 @@ export const AuthController = {
         message: "Login successful",
         accessToken,
         id,
-        refreshToken, // Include refreshToken in response body
+        refreshToken, 
       });
     } catch (error: any) {
       console.error("Login error:", error);
