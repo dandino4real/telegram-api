@@ -2343,9 +2343,7 @@
 
 
 
-
-
-import { Telegraf, Markup} from "telegraf"; 
+import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
 import { sendAdminAlertForex } from "../utils/services/notifier-forex";
@@ -2437,14 +2435,14 @@ class SessionManager {
     console.log("✅ Custom Forex session manager initialized");
   }
 
-  async getSession(telegramId: string, retryCount = 3): Promise<SessionData> {
+  async getSession(telegramId: string, retryCount = 5): Promise<SessionData> {
     if (!this.collection) await this.init();
     if (this.locks.has(telegramId)) {
       await this.locks.get(telegramId);
     }
     for (let attempt = 1; attempt <= retryCount; attempt++) {
       try {
-        const session = await this.collection.findOne({ telegramId }, { maxTimeMS: 15000 });
+        const session = await this.collection.findOne({ telegramId }, { maxTimeMS: 20000 });
         logger.info(`[getSession] Fetched session for ${telegramId}:`, session || { step: "welcome" });
         return (
           session || {
@@ -2458,7 +2456,14 @@ class SessionManager {
       } catch (error) {
         logger.error(`[getSession] Attempt ${attempt} failed for ${telegramId}:`, error);
         if (attempt === retryCount) {
-          throw new Error(`Failed to fetch session for ${telegramId} after ${retryCount} attempts`);
+          logger.warn(`[getSession] Resetting session for ${telegramId} due to repeated failures`);
+          return {
+            step: "welcome",
+            botType: "forex",
+            telegramId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
@@ -2473,7 +2478,7 @@ class SessionManager {
     };
   }
 
-  async saveSession(telegramId: string, sessionData: any, retryCount = 3): Promise<void> {
+  async saveSession(telegramId: string, sessionData: any, retryCount = 5): Promise<void> {
     if (!this.collection) await this.init();
     for (let attempt = 1; attempt <= retryCount; attempt++) {
       try {
@@ -2486,12 +2491,12 @@ class SessionManager {
               updatedAt: new Date(),
             },
           },
-          { upsert: true, maxTimeMS: 15000 }
+          { upsert: true, maxTimeMS: 20000 }
         );
         this.locks.set(telegramId, savePromise);
         await savePromise;
         this.locks.delete(telegramId);
-        logger.info(`[saveSession] Saved session for ${telegramId}`);
+        logger.info(`[saveSession] Saved session for ${telegramId}:`, sessionData);
         return;
       } catch (error) {
         logger.error(`[saveSession] Attempt ${attempt} failed for ${telegramId}:`, error);
@@ -2510,7 +2515,7 @@ const sessionManager = new SessionManager();
 
 // Logger configuration
 const logger = createLogger({
-  level: "warn",
+  level: "info", // Changed to info for more detailed session logging
   transports: [
     new transports.Console({
       format: format.combine(format.timestamp(), format.simple()),
@@ -2520,7 +2525,7 @@ const logger = createLogger({
 
 // Rate limiters
 const actionLimiter = rateLimit({
-  window: 1500,
+  window: 2000, // Increased to 2 seconds
   limit: 1,
   onLimitExceeded: (ctx) =>
     ctx.reply("🚫 Please wait a moment before trying again."),
@@ -2542,7 +2547,6 @@ export default function (bot: Telegraf<BotContext>) {
       return;
     }
     const telegramId = ctx.from.id.toString();
-    ctx.saveSession = async () => {};
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       ctx.session.telegramId = telegramId;
@@ -2550,7 +2554,6 @@ export default function (bot: Telegraf<BotContext>) {
         await sessionManager.saveSession(telegramId, ctx.session);
       };
       await next();
-      await ctx.saveSession();
     } catch (error) {
       logger.error("[Session Middleware] Error for user", { telegramId, error });
       await ctx.reply("❌ Error: Session initialization failed. Please try again.");
@@ -2638,14 +2641,16 @@ export default function (bot: Telegraf<BotContext>) {
     }
     const telegramId = ctx.from.id.toString();
     try {
-      ctx.session = {
+      const session = {
         step: "welcome",
         botType: "forex",
         telegramId,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      await sessionManager.saveSession(telegramId, ctx.session);
+      await sessionManager.saveSession(telegramId, session);
+      ctx.session = session;
+
       await ctx.replyWithHTML(
         `<b>🛠 Welcome to <u>Afibie FX Signal</u>! 🚀</b>\n\n` +
           `📈 <i>Home of <b>Exclusive FOREX signals</b></i>\n\n` +
@@ -2675,7 +2680,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "welcome") {
-        logger.warn(`[continue_to_captcha] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[continue_to_captcha] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid step. Please start over with /start.`
@@ -2684,14 +2697,13 @@ export default function (bot: Telegraf<BotContext>) {
       }
 
       ctx.session.step = "captcha";
-      const captcha = generateCaptcha();
-      ctx.session.captcha = captcha;
+      ctx.session.captcha = generateCaptcha();
       await sessionManager.saveSession(telegramId, ctx.session);
 
       await ctx.replyWithHTML(
         `<b>🔐 Step 1: Captcha Verification</b>\n\n` +
           `To prevent bots, please <i>solve this Captcha</i>:\n\n` +
-          `👉 <b>Type this number:</b> <code>${captcha}</code>`
+          `👉 <b>Type this number:</b> <code>${ctx.session.captcha}</code>`
       );
     } catch (error) {
       logger.error("[continue_to_captcha] Error for user", { telegramId, error });
@@ -2756,7 +2768,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "final_confirmation") {
-        logger.warn(`[confirm_final] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[confirm_final] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Session expired or invalid. Please start over with /start.`
@@ -2775,7 +2795,6 @@ export default function (bot: Telegraf<BotContext>) {
       };
       await sessionManager.saveSession(telegramId, ctx.session);
 
-      // Only edit reply markup if it exists and is a text message
       if (ctx.callbackQuery?.message && "text" in ctx.callbackQuery.message && ctx.callbackQuery.message.reply_markup) {
         try {
           await ctx.editMessageReplyMarkup(undefined);
@@ -2807,7 +2826,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "final_confirmation") {
-        logger.warn(`[cancel_final] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[cancel_final] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid action. Please start over with /start.`
@@ -2830,7 +2857,6 @@ export default function (bot: Telegraf<BotContext>) {
           `👉 Type <b>/start</b> to begin again.`
       );
 
-      // Only edit reply markup if it exists and is a text message
       if (ctx.callbackQuery?.message && "text" in ctx.callbackQuery.message && ctx.callbackQuery.message.reply_markup) {
         try {
           await ctx.editMessageReplyMarkup(undefined);
@@ -2855,6 +2881,7 @@ export default function (bot: Telegraf<BotContext>) {
       return;
     }
     const telegramId = ctx.from.id.toString();
+    const text = ctx.message.text.trim();
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       const session = ctx.session;
@@ -2862,12 +2889,14 @@ export default function (bot: Telegraf<BotContext>) {
       switch (session.step) {
         case "captcha": {
           if (!session.captcha) {
-            logger.error("Captcha not found in session", { telegramId });
+            logger.error("Captcha not found in session, resetting", { telegramId });
+            session.step = "welcome";
+            await sessionManager.saveSession(telegramId, session);
             await ctx.reply("Session error. Please start over with /start");
             return;
           }
 
-          if (verifyCaptcha(ctx.message.text.trim(), session.captcha)) {
+          if (verifyCaptcha(text, session.captcha)) {
             session.step = "captcha_confirmed";
             await sessionManager.saveSession(telegramId, session);
 
@@ -2892,7 +2921,7 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "country": {
-          session.country = ctx.message.text.trim();
+          session.country = text;
           session.step = "waiting_for_done";
           await sessionManager.saveSession(telegramId, session);
 
@@ -2912,7 +2941,6 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "exco_login": {
-          const text = ctx.message.text.trim();
           if (!isValidLoginID(text)) {
             await ctx.replyWithHTML(
               `❌ <b>Invalid Login ID</b>\n\n` +
@@ -2934,7 +2962,6 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "deriv": {
-          const text = ctx.message.text.trim();
           if (!isValidLoginID(text)) {
             await ctx.replyWithHTML(
               `❌ <b>Invalid Deriv Login ID</b>\n\n` +
@@ -2966,12 +2993,11 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "login_id": {
-          const text = ctx.message.text.trim();
           if (!isValidLoginID(text)) {
             await ctx.replyWithHTML(
               `❌ <b>Invalid Login ID</b>\n\n` +
-                `🚫 Please enter a valid alphanumeric Login ID (5-20 characters).\n` +
-                `📌 <b>Example:</b> <code>EX123456</code>`
+              `🚫 Please enter a valid alphanumeric Login ID (5-20 characters).\n` +
+              `📌 <b>Example:</b> <code>EX123456</code>`
             );
             return;
           }
@@ -2983,6 +3009,17 @@ export default function (bot: Telegraf<BotContext>) {
             `<b>✅ You've provided your Exco Trader Login ID!</b>\n\n` +
               `👉 Click <b>CONTINUE</b> to proceed to Deriv registration (optional).`,
             Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_deriv")])
+          );
+          break;
+        }
+
+        default: {
+          logger.warn(`[text] Invalid session step (${session.step}), resetting`, { telegramId });
+          session.step = "welcome";
+          await sessionManager.saveSession(telegramId, session);
+          await ctx.replyWithHTML(
+            `<b>⚠️ Error</b>\n\n` +
+              `🚫 Invalid step. Please start over with /start.`
           );
           break;
         }
@@ -3004,7 +3041,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "captcha_confirmed") {
-        logger.warn(`[continue_to_country] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[continue_to_country] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid step. Please start over with /start.`
@@ -3036,7 +3081,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "waiting_for_done") {
-        logger.warn(`[done_exco] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[done_exco] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid step. Please start over with /start.`
@@ -3070,7 +3123,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "exco_confirmed") {
-        logger.warn(`[continue_to_deriv] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[continue_to_deriv] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid step. Please start over with /start.`
@@ -3110,7 +3171,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "deriv") {
-        logger.warn(`[done_deriv] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[done_deriv] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid step. Please start over with /start.`
@@ -3153,7 +3222,15 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       if (ctx.session.step !== "login_id") {
-        logger.warn(`[continue_to_login_id] Invalid session step (${ctx.session.step})`, { telegramId });
+        logger.warn(`[continue_to_login_id] Invalid session step (${ctx.session.step}), resetting`, { telegramId });
+        ctx.session = {
+          step: "welcome",
+          botType: "forex",
+          telegramId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await sessionManager.saveSession(telegramId, ctx.session);
         await ctx.replyWithHTML(
           `<b>⚠️ Error</b>\n\n` +
             `🚫 Invalid step. Please start over with /start.`
@@ -3189,7 +3266,7 @@ export default function (bot: Telegraf<BotContext>) {
       }
 
       let user;
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 5; attempt++) {
         try {
           user = await ForexUserModel.findOneAndUpdate(
             { telegramId, botType: session.botType },
@@ -3203,13 +3280,14 @@ export default function (bot: Telegraf<BotContext>) {
               excoTraderLoginId: session.excoTraderLoginId,
               status: "pending",
             },
-            { upsert: true, new: true, maxTimeMS: 20000 }
+            { upsert: true, new: true, maxTimeMS: 30000 }
           );
+          logger.info(`[saveAndNotify] Saved user data for ${telegramId}`, { user });
           break;
-        } catch (error: any) { // Explicitly type as any
+        } catch (error: any) {
           logger.error(`[saveAndNotify] Attempt ${attempt} failed for user ${telegramId}:`, error);
-          if (attempt === 3) {
-            throw new Error(`Failed to save user data after 3 attempts: ${error.message || "Unknown error"}`);
+          if (attempt === 5) {
+            throw new Error(`Failed to save user data after 5 attempts: ${error.message || "Unknown error"}`);
           }
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
