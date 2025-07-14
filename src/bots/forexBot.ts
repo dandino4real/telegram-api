@@ -2340,7 +2340,12 @@
 
 
 
-import { Telegraf, Markup } from "telegraf";
+
+
+
+
+
+import { Telegraf, Markup} from "telegraf"; 
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
 import { sendAdminAlertForex } from "../utils/services/notifier-forex";
@@ -2394,8 +2399,8 @@ async function connectDB() {
       await mongoose.connect(mongoUri, {
         retryWrites: true,
         writeConcern: { w: "majority" },
-        connectTimeoutMS: 30000, // Increased timeout
-        serverSelectionTimeoutMS: 20000, // Increased timeout
+        connectTimeoutMS: 30000,
+        serverSelectionTimeoutMS: 20000,
         socketTimeoutMS: 60000,
         maxPoolSize: 10,
       });
@@ -2455,10 +2460,10 @@ class SessionManager {
         if (attempt === retryCount) {
           throw new Error(`Failed to fetch session for ${telegramId} after ${retryCount} attempts`);
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait before retry
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-    // Fallback (should not reach here)
+    // Fallback
     return {
       step: "welcome",
       botType: "forex",
@@ -2490,11 +2495,11 @@ class SessionManager {
         return;
       } catch (error) {
         logger.error(`[saveSession] Attempt ${attempt} failed for ${telegramId}:`, error);
-        this.locks.delete(telegramId); // Clear lock on failure
+        this.locks.delete(telegramId);
         if (attempt === retryCount) {
           throw new Error(`Failed to save session for ${telegramId} after ${retryCount} attempts`);
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait before retry
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }
@@ -2515,7 +2520,7 @@ const logger = createLogger({
 
 // Rate limiters
 const actionLimiter = rateLimit({
-  window: 1500, // Increased to 1.5 seconds for slower networks
+  window: 1500,
   limit: 1,
   onLimitExceeded: (ctx) =>
     ctx.reply("🚫 Please wait a moment before trying again."),
@@ -2540,7 +2545,7 @@ export default function (bot: Telegraf<BotContext>) {
     ctx.saveSession = async () => {};
     try {
       ctx.session = await sessionManager.getSession(telegramId);
-      ctx.session.telegramId = telegramId; // Ensure telegramId is set
+      ctx.session.telegramId = telegramId;
       ctx.saveSession = async () => {
         await sessionManager.saveSession(telegramId, ctx.session);
       };
@@ -2770,8 +2775,8 @@ export default function (bot: Telegraf<BotContext>) {
       };
       await sessionManager.saveSession(telegramId, ctx.session);
 
-      // Only edit reply markup if it exists
-      if (ctx.callbackQuery?.message?.reply_markup) {
+      // Only edit reply markup if it exists and is a text message
+      if (ctx.callbackQuery?.message && "text" in ctx.callbackQuery.message && ctx.callbackQuery.message.reply_markup) {
         try {
           await ctx.editMessageReplyMarkup(undefined);
         } catch (error: any) {
@@ -2825,8 +2830,8 @@ export default function (bot: Telegraf<BotContext>) {
           `👉 Type <b>/start</b> to begin again.`
       );
 
-      // Only edit reply markup if it exists
-      if (ctx.callbackQuery?.message?.reply_markup) {
+      // Only edit reply markup if it exists and is a text message
+      if (ctx.callbackQuery?.message && "text" in ctx.callbackQuery.message && ctx.callbackQuery.message.reply_markup) {
         try {
           await ctx.editMessageReplyMarkup(undefined);
         } catch (error: any) {
@@ -2850,7 +2855,6 @@ export default function (bot: Telegraf<BotContext>) {
       return;
     }
     const telegramId = ctx.from.id.toString();
-    const text = ctx.message.text.trim();
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       const session = ctx.session;
@@ -2863,7 +2867,7 @@ export default function (bot: Telegraf<BotContext>) {
             return;
           }
 
-          if (verifyCaptcha(text, session.captcha)) {
+          if (verifyCaptcha(ctx.message.text.trim(), session.captcha)) {
             session.step = "captcha_confirmed";
             await sessionManager.saveSession(telegramId, session);
 
@@ -2888,7 +2892,7 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "country": {
-          session.country = text;
+          session.country = ctx.message.text.trim();
           session.step = "waiting_for_done";
           await sessionManager.saveSession(telegramId, session);
 
@@ -2908,6 +2912,7 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "exco_login": {
+          const text = ctx.message.text.trim();
           if (!isValidLoginID(text)) {
             await ctx.replyWithHTML(
               `❌ <b>Invalid Login ID</b>\n\n` +
@@ -2929,6 +2934,7 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "deriv": {
+          const text = ctx.message.text.trim();
           if (!isValidLoginID(text)) {
             await ctx.replyWithHTML(
               `❌ <b>Invalid Deriv Login ID</b>\n\n` +
@@ -2960,11 +2966,12 @@ export default function (bot: Telegraf<BotContext>) {
         }
 
         case "login_id": {
+          const text = ctx.message.text.trim();
           if (!isValidLoginID(text)) {
             await ctx.replyWithHTML(
               `❌ <b>Invalid Login ID</b>\n\n` +
-              `🚫 Please enter a valid alphanumeric Login ID (5-20 characters).\n` +
-              `📌 <b>Example:</b> <code>EX123456</code>`
+                `🚫 Please enter a valid alphanumeric Login ID (5-20 characters).\n` +
+                `📌 <b>Example:</b> <code>EX123456</code>`
             );
             return;
           }
@@ -3199,10 +3206,10 @@ export default function (bot: Telegraf<BotContext>) {
             { upsert: true, new: true, maxTimeMS: 20000 }
           );
           break;
-        } catch (error) {
+        } catch (error: any) { // Explicitly type as any
           logger.error(`[saveAndNotify] Attempt ${attempt} failed for user ${telegramId}:`, error);
           if (attempt === 3) {
-            throw new Error(`Failed to save user data after 3 attempts: ${error.message}`);
+            throw new Error(`Failed to save user data after 3 attempts: ${error.message || "Unknown error"}`);
           }
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
@@ -3214,7 +3221,11 @@ export default function (bot: Telegraf<BotContext>) {
           `📌 <i>You will receive a link to join the signal channel once approved.</i>\n\n`
       );
 
-      await sendAdminAlertForex(user);
+      if (user) {
+        await sendAdminAlertForex(user);
+      } else {
+        logger.error("[saveAndNotify] User document is undefined after save", { telegramId });
+      }
     } catch (error) {
       logger.error(`[saveAndNotify] Error for user ${telegramId}:`, error);
       await ctx.replyWithHTML(
