@@ -1562,26 +1562,6 @@
 
 
 
-
-// import { Telegraf, Markup, Context } from "telegraf";
-// import { message } from "telegraf/filters";
-// import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
-// import { sendAdminAlertForex } from "../utils/services/notifier-forex";
-// import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
-// import { isValidLoginID } from "../utils/validate";
-// import rateLimit from "telegraf-ratelimit";
-// import { createLogger, transports, format } from "winston";
-// import mongoose from "mongoose";
-// import dotenv from "dotenv";
-// import { MongoClient } from "mongodb";
-
-
-
-
-
-
-
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
@@ -1590,7 +1570,8 @@ import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
 import { isValidLoginID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import { createLogger, transports, format } from "winston";
-import { BotContext as BaseBotContext } from "../telegrafContext";
+// import { BotContext as BaseBotContext } from "../telegrafContext";
+import { Context } from "telegraf"; 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { MongoClient } from "mongodb";
@@ -1599,7 +1580,14 @@ dotenv.config({
   path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
 });
 
-// Session data type for type safety
+const GROUP_CHAT_ID = process.env.FOREX_GROUP_CHAT_ID;
+
+
+
+// Define BaseBotContext if telegrafContext.ts is missing or problematic
+export interface BaseBotContext extends Context {}
+
+// Session data type
 export interface SessionData {
   step: string;
   botType: string;
@@ -1613,15 +1601,11 @@ export interface SessionData {
   [key: string]: any;
 }
 
-// Extend BotContext to include saveSession
+// Define BotContext
 export interface BotContext extends BaseBotContext {
   session: SessionData;
   saveSession?: () => Promise<void>;
 }
-
-
-const GROUP_CHAT_ID = process.env.FOREX_GROUP_CHAT_ID;
-
 // MongoDB connection function
 async function connectDB() {
   const mongoUri = process.env.MONGODB_URI;
@@ -1653,15 +1637,15 @@ connectDB().catch((error) => {
   console.error("[Startup] Failed to initialize MongoDB:", error);
 });
 
-// Custom session manager
+// Custom session manager with locking
 class SessionManager {
   private collection: any;
   private client: MongoClient;
+  private locks: Map<string, Promise<void>> = new Map();
 
   constructor() {
     const mongoUri = process.env.MONGODB_URI;
     if (!mongoUri) throw new Error("MONGODB_URI not defined");
-    
     this.client = new MongoClient(mongoUri);
     this.collection = null;
   }
@@ -1675,6 +1659,10 @@ class SessionManager {
 
   async getSession(telegramId: string) {
     if (!this.collection) await this.init();
+    // Wait for any ongoing save for this telegramId
+    if (this.locks.has(telegramId)) {
+      await this.locks.get(telegramId);
+    }
     const session = await this.collection.findOne({ telegramId });
     return session || {
       step: "welcome",
@@ -1687,7 +1675,7 @@ class SessionManager {
 
   async saveSession(telegramId: string, sessionData: any) {
     if (!this.collection) await this.init();
-    await this.collection.updateOne(
+    const savePromise = this.collection.updateOne(
       { telegramId },
       {
         $set: {
@@ -1698,58 +1686,62 @@ class SessionManager {
       },
       { upsert: true }
     );
+    this.locks.set(telegramId, savePromise);
+    await savePromise;
+    this.locks.delete(telegramId);
   }
 }
 
 // Create session manager instance
 const sessionManager = new SessionManager();
 
+// Rate limiter for all actions
+const actionLimiter = rateLimit({
+  window: 1000, // 1-second window
+  limit: 1, // 1 action per second
+  onLimitExceeded: (ctx) =>
+    ctx.reply("🚫 Please wait a moment before trying again."),
+});
+
+const logger = createLogger({
+  level: "warn",
+  transports: [
+    new transports.Console({
+      format: format.combine(format.timestamp(), format.simple()),
+    }),
+  ],
+});
+
+const getLinkLimiter = rateLimit({
+  window: 60_000,
+  limit: 3,
+  onLimitExceeded: (ctx) =>
+    ctx.reply("🚫 Too many link requests! Try again later."),
+});
+
+
+
 export default function (bot: Telegraf<BotContext>) {
   // Custom session middleware
   bot.use(async (ctx, next) => {
     const telegramId = ctx.from?.id.toString();
     
-    // Always initialize saveSession to avoid 'undefined' errors
     ctx.saveSession = async () => {};
     
     if (!telegramId) return next();
     
-    // Get session from DB
     ctx.session = await sessionManager.getSession(telegramId);
     
-    // Override saveSession with actual implementation
     ctx.saveSession = async () => {
       await sessionManager.saveSession(telegramId, ctx.session);
     };
     
     await next();
-    
-    // Save session after handling
     await ctx.saveSession();
   });
 
-  // Refresh session function for action handlers
-  async function refreshSession(ctx: BotContext) {
-    if (!ctx.from?.id) return;
-    const telegramId = ctx.from.id.toString();
-    ctx.session = await sessionManager.getSession(telegramId);
-  }
-
-  const logger = createLogger({
-    level: "warn",
-    transports: [
-      new transports.Console({
-        format: format.combine(format.timestamp(), format.simple()),
-      }),
-    ],
-  });
-
-  const getLinkLimiter = rateLimit({
-    window: 60_000,
-    limit: 3,
-    onLimitExceeded: (ctx) =>
-      ctx.reply("🚫 Too many link requests! Try again later."),
-  });
+  // Apply rate limiter for actions
+  bot.use(actionLimiter);
 
   // Notify user on status change
   async function notifyUserOnStatusChange(change: any) {
@@ -1761,7 +1753,7 @@ export default function (bot: Telegraf<BotContext>) {
         user.telegramId,
         `<b>🎉 Congratulations!</b> Your registration has been approved. ✅\n\n` +
           `🔗 <b>Welcome to Afibie Fx Signals!</b> 🚀\n\n` +
-          `👉 Click the button below to receive your exclusive invite link.\n` +
+          `👉 Click the button below to receive your exclusive invite link.\n\n` +
           `⚠️ <i>Note:</i> This link is time-sensitive and may expire soon.\n\n` +
           `🔥 <i>Enjoy your journey and happy trading!</i> 📈`,
         {
@@ -1827,7 +1819,6 @@ export default function (bot: Telegraf<BotContext>) {
   }
 
   bot.start(async (ctx) => {
-    // Reset session on start
     ctx.session = {
       step: "welcome",
       botType: "forex",
@@ -1854,7 +1845,6 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_captcha", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
     if (ctx.session.step !== "welcome") {
       logger.warn(
@@ -1880,7 +1870,6 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("get_invite_link", getLinkLimiter, async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     const telegramId = ctx.from?.id?.toString();
     if (!telegramId) {
       logger.error("[get_invite_link] No user ID found");
@@ -1929,12 +1918,16 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("confirm_final", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
     
     if (ctx.session.step !== "final_confirmation") {
+      logger.warn(
+        `[confirm_final] Invalid session step (${ctx.session.step})`
+      );
       await ctx.replyWithHTML(
-        `<b>⚠️ Error</b>\n\n🚫 Session expired or invalid. Please start over with /start.`
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Session expired or invalid. Please start over with /start.`
       );
       return;
     }
@@ -1943,7 +1936,6 @@ export default function (bot: Telegraf<BotContext>) {
       await connectDB();
       await saveAndNotify(ctx, ctx.session);
       
-      // Clear session after successful submission
       ctx.session = {
         step: "completed",
         botType: "forex",
@@ -1955,18 +1947,20 @@ export default function (bot: Telegraf<BotContext>) {
       
       await ctx.editMessageReplyMarkup(undefined);
     } catch (error: any) {
-      console.error(`[confirm_final] Error:`, error);
+      logger.error(`[confirm_final] Error:`, error);
       await ctx.replyWithHTML(
-        `<b>⚠️ Error</b>\n\n🚫 Failed to submit details. Please try again.`
+        `<b>⚠️ Error</b>\n\n` +
+          `🚫 Failed to submit details. Please try again.`
       );
     }
   });
 
   bot.action("cancel_final", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
+    
     if (ctx.session.step !== "final_confirmation") {
-      logger.error(
+      logger.warn(
         `[cancel_final] Invalid session step (${ctx.session.step})`
       );
       await ctx.replyWithHTML(
@@ -1976,7 +1970,6 @@ export default function (bot: Telegraf<BotContext>) {
       return;
     }
 
-    // Reset session
     ctx.session = {
       step: "welcome",
       botType: "forex",
@@ -2100,7 +2093,7 @@ export default function (bot: Telegraf<BotContext>) {
           `<b>Final Confirmation</b>\n\n` +
             `📌 <b>Your Details:</b>\n` +
             `${details}\n\n` +
-            ` <b>correct?</b>\n` +
+            `⚠️ <b>Not correct?</b> Type <b>/start</b> to restart the process.\n\n` +
             `👉 Click <b>Confirm</b> to submit or <b>Cancel</b> to start over.`,
           Markup.inlineKeyboard([
             Markup.button.callback("🔵 CONFIRM", "confirm_final"),
@@ -2136,10 +2129,11 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_country", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
+    
     if (ctx.session.step !== "captcha_confirmed") {
-      logger.error(
+      logger.warn(
         `[continue_to_country] Invalid session step (${ctx.session.step})`
       );
       await ctx.replyWithHTML(
@@ -2161,10 +2155,11 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("done_exco", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
+    
     if (ctx.session.step !== "waiting_for_done") {
-      logger.error(
+      logger.warn(
         `[done_exco] Invalid session step (${ctx.session.step})`
       );
       await ctx.replyWithHTML(
@@ -2186,10 +2181,11 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_deriv", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
+    
     if (ctx.session.step !== "exco_confirmed") {
-      logger.error(
+      logger.warn(
         `[continue_to_deriv] Invalid session step (${ctx.session.step})`
       );
       await ctx.replyWithHTML(
@@ -2217,10 +2213,11 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("done_deriv", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
+    
     if (ctx.session.step !== "deriv") {
-      logger.error(
+      logger.warn(
         `[done_deriv] Invalid session step (${ctx.session.step})`
       );
       await ctx.replyWithHTML(
@@ -2253,10 +2250,11 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("continue_to_login_id", async (ctx) => {
-    await refreshSession(ctx); // REFRESH SESSION BEFORE PROCESSING
     await ctx.answerCbQuery();
+    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
+    
     if (ctx.session.step !== "login_id") {
-      logger.error(
+      logger.warn(
         `[continue_to_login_id] Invalid session step (${ctx.session.step})`
       );
       await ctx.replyWithHTML(
