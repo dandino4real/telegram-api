@@ -4447,9 +4447,6 @@
 
 
 
-
-
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { createLogger, transports, format } from "winston";
@@ -4620,7 +4617,7 @@ const logger = createLogger({
 
 // Rate limiter
 const actionLimiter = rateLimit({
-  window: 3000,
+  window: 5000, // Increased to 5 seconds
   limit: 1,
   onLimitExceeded: (ctx) =>
     ctx.reply("🚫 Please wait a moment before trying again."),
@@ -4638,7 +4635,6 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       ctx.session = await sessionManager.getSession(telegramId);
       ctx.session.telegramId = telegramId;
-      await sessionManager.saveSession(telegramId, ctx.session); // Save immediately to ensure consistency
       logger.info(`[Middleware] Initialized session for ${telegramId}:`, ctx.session);
       await next();
     } catch (error) {
@@ -4658,7 +4654,7 @@ export default function (bot: Telegraf<BotContext>) {
     }
     const telegramId = ctx.from.id.toString();
     try {
-      ctx.session = await sessionManager.getSession(telegramId);
+      // Always reset session to a clean state
       ctx.session = {
         step: "welcome",
         botType: "forex",
@@ -4667,7 +4663,7 @@ export default function (bot: Telegraf<BotContext>) {
         updatedAt: new Date(),
       };
       await sessionManager.saveSession(telegramId, ctx.session);
-      logger.info(`[start] Session set to welcome for ${telegramId}:`, ctx.session);
+      logger.info(`[start] Session reset to welcome for ${telegramId}:`, ctx.session);
 
       await ctx.replyWithHTML(
         `<b>🛠 Welcome to <u>Afibie FX Signal</u>! 🚀</b>\n\n` +
@@ -4711,6 +4707,7 @@ export default function (bot: Telegraf<BotContext>) {
             updatedAt: new Date(),
           };
           await sessionManager.saveSession(telegramId, ctx.session);
+          logger.info(`[continue_to_captcha] Session reset to welcome for ${telegramId}:`, ctx.session);
           await ctx.replyWithHTML(
             `<b>⚠️ Error</b>\n\n` +
               `🚫 Invalid step. Please start over with /start.`
@@ -4721,6 +4718,8 @@ export default function (bot: Telegraf<BotContext>) {
 
       ctx.session.step = "captcha";
       ctx.session.captcha = generateCaptcha();
+      delete ctx.session.country; // Clear stale data
+      delete ctx.session.excoTraderLoginId; // Clear stale data
       await sessionManager.saveSession(telegramId, ctx.session);
       logger.info(`[continue_to_captcha] Session updated for ${telegramId}:`, ctx.session);
 
