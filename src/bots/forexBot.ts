@@ -940,7 +940,7 @@
 //         user.telegramId,
 //         `<b>🎉 Congratulations!</b> Your registration has been approved. ✅\n\n` +
 //           `🔗 <b>Welcome to Afibie Fx Signals!</b> 🚀\n\n` +
-//           `👉 Click the button below to receive your exclusive invite link.\极\n` +
+//           `👉 Click the button below to receive your exclusive invite link.\n\n` +
 //           `⚠️ <i>Note:</i> This link is time-sensitive and may expire soon.\n\n` +
 //           `🔥 <i>Enjoy your journey and happy trading!</i> 📈`,
 //         {
@@ -1828,7 +1828,7 @@ export default function (bot: Telegraf<BotContext>) {
 
     await ctx.replyWithHTML(
       `<b>🛠 Welcome to <u>Afibie FX Signal</u>! 🚀</b>\n\n` +
-        `📈 <i>Home of <b>Exclusive FOREX signals</b></极i>\n\n` +
+        `📈 <i>Home of <b>Exclusive FOREX signals</b></i>\n\n` +
         `<b>To gain access, complete these steps 👇</b>\n\n` +
         `✅ <b>Step 1:</b> Solve the Captcha 🔢\n` +
         `✅ <b>Step 2:</b> Register at Exco Trader, deposit <b>$100</b> or more, and provide your <b>Login ID</b> 💰\n` +
