@@ -1563,7 +1563,17 @@
 
 
 
-
+// import { Telegraf, Markup, Context } from "telegraf";
+// import { message } from "telegraf/filters";
+// import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
+// import { sendAdminAlertForex } from "../utils/services/notifier-forex";
+// import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
+// import { isValidLoginID } from "../utils/validate";
+// import rateLimit from "telegraf-ratelimit";
+// import { createLogger, transports, format } from "winston";
+// import mongoose from "mongoose";
+// import dotenv from "dotenv";
+// import { MongoClient } from "mongodb";
 
 
 
@@ -1581,6 +1591,13 @@ import { isValidLoginID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import { createLogger, transports, format } from "winston";
 import { BotContext as BaseBotContext } from "../telegrafContext";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import { MongoClient } from "mongodb";
+
+dotenv.config({
+  path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
+});
 
 // Session data type for type safety
 export interface SessionData {
@@ -1601,13 +1618,7 @@ export interface BotContext extends BaseBotContext {
   session: SessionData;
   saveSession?: () => Promise<void>;
 }
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import { MongoClient } from "mongodb";
 
-dotenv.config({
-  path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
-});
 
 const GROUP_CHAT_ID = process.env.FOREX_GROUP_CHAT_ID;
 
