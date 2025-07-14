@@ -1558,10 +1558,6 @@
 
 
 
-
-
-
-
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { IFOREX_User, ForexUserModel } from "../models/forex_user.model";
@@ -1570,24 +1566,21 @@ import { generateCaptcha, verifyCaptcha } from "../utils/captcha";
 import { isValidLoginID } from "../utils/validate";
 import rateLimit from "telegraf-ratelimit";
 import { createLogger, transports, format } from "winston";
-// import { BotContext as BaseBotContext } from "../telegrafContext";
-import { Context } from "telegraf"; 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { MongoClient } from "mongodb";
+import { Context } from "telegraf";
 
+// Environment configuration
 dotenv.config({
   path: process.env.NODE_ENV === "production" ? ".env.production" : ".env",
 });
 
 const GROUP_CHAT_ID = process.env.FOREX_GROUP_CHAT_ID;
 
-
-
-// Define BaseBotContext if telegrafContext.ts is missing or problematic
+// Define BaseBotContext and BotContext
 export interface BaseBotContext extends Context {}
 
-// Session data type
 export interface SessionData {
   step: string;
   botType: string;
@@ -1601,11 +1594,11 @@ export interface SessionData {
   [key: string]: any;
 }
 
-// Define BotContext
 export interface BotContext extends BaseBotContext {
   session: SessionData;
   saveSession?: () => Promise<void>;
 }
+
 // MongoDB connection function
 async function connectDB() {
   const mongoUri = process.env.MONGODB_URI;
@@ -1659,7 +1652,6 @@ class SessionManager {
 
   async getSession(telegramId: string) {
     if (!this.collection) await this.init();
-    // Wait for any ongoing save for this telegramId
     if (this.locks.has(telegramId)) {
       await this.locks.get(telegramId);
     }
@@ -1669,7 +1661,7 @@ class SessionManager {
       botType: "forex",
       telegramId,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
   }
 
@@ -1681,8 +1673,8 @@ class SessionManager {
         $set: {
           ...sessionData,
           telegramId,
-          updatedAt: new Date()
-        }
+          updatedAt: new Date(),
+        },
       },
       { upsert: true }
     );
@@ -1695,14 +1687,7 @@ class SessionManager {
 // Create session manager instance
 const sessionManager = new SessionManager();
 
-// Rate limiter for all actions
-const actionLimiter = rateLimit({
-  window: 1000, // 1-second window
-  limit: 1, // 1 action per second
-  onLimitExceeded: (ctx) =>
-    ctx.reply("🚫 Please wait a moment before trying again."),
-});
-
+// Logger configuration
 const logger = createLogger({
   level: "warn",
   transports: [
@@ -1712,6 +1697,14 @@ const logger = createLogger({
   ],
 });
 
+// Rate limiters
+const actionLimiter = rateLimit({
+  window: 1000, // 1-second window
+  limit: 1, // 1 action per second
+  onLimitExceeded: (ctx) =>
+    ctx.reply("🚫 Please wait a moment before trying again."),
+});
+
 const getLinkLimiter = rateLimit({
   window: 60_000,
   limit: 3,
@@ -1719,23 +1712,21 @@ const getLinkLimiter = rateLimit({
     ctx.reply("🚫 Too many link requests! Try again later."),
 });
 
-
-
 export default function (bot: Telegraf<BotContext>) {
-  // Custom session middleware
+  // Session middleware
   bot.use(async (ctx, next) => {
     const telegramId = ctx.from?.id.toString();
-    
     ctx.saveSession = async () => {};
-    
-    if (!telegramId) return next();
-    
+    if (!telegramId) {
+      logger.error("[Session Middleware] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
     ctx.session = await sessionManager.getSession(telegramId);
-    
+    ctx.session.telegramId = telegramId; // Ensure telegramId is set
     ctx.saveSession = async () => {
       await sessionManager.saveSession(telegramId, ctx.session);
     };
-    
     await next();
     await ctx.saveSession();
   });
@@ -1753,7 +1744,7 @@ export default function (bot: Telegraf<BotContext>) {
         user.telegramId,
         `<b>🎉 Congratulations!</b> Your registration has been approved. ✅\n\n` +
           `🔗 <b>Welcome to Afibie Fx Signals!</b> 🚀\n\n` +
-          `👉 Click the button below to receive your exclusive invite link.\n\n` +
+          `👉 Click the button below to receive your exclusive invite link.\n` +
           `⚠️ <i>Note:</i> This link is time-sensitive and may expire soon.\n\n` +
           `🔥 <i>Enjoy your journey and happy trading!</i> 📈`,
         {
@@ -1773,7 +1764,7 @@ export default function (bot: Telegraf<BotContext>) {
 
       const nextSteps =
         user.rejectionReason === "no_affiliate_link"
-          ? `To gain access to Afibie FX signals, register a new Exco Trader account using our affiliate  link:\n\n` +
+          ? `To gain access to Afibie FX signals, register a new Exco Trader account using our affiliate link:\n\n` +
             `👉 <a href="${process.env.EXCO_LINK}">Exco Trader Registration Link</a>\n\n` +
             `Once registered, click /start to begin again.`
           : user.rejectionReason === "insufficient_deposit"
@@ -1783,9 +1774,7 @@ export default function (bot: Telegraf<BotContext>) {
 
       const rejectionMessage =
         `<b>❌ Your registration was rejected.</b>\n\n` +
-        `👤 <b>Your Exco Trader Login ID:</b> <code>${
-          user.excoTraderLoginId || "N/A"
-        }</code>\n` +
+        `👤 <b>Your Exco Trader Login ID:</b> <code>${user.excoTraderLoginId || "N/A"}</code>\n` +
         `⚠️ <b>Reason:</b> ${reasonMessage}\n\n` +
         `${nextSteps}\n\n`;
 
@@ -1811,20 +1800,23 @@ export default function (bot: Telegraf<BotContext>) {
         }
       });
     } catch (error) {
-      console.error(
-        "[watchUserStatusChanges] Error setting up change stream:",
-        error
-      );
+      console.error("[watchUserStatusChanges] Error setting up change stream:", error);
     }
   }
 
   bot.start(async (ctx) => {
+    if (!ctx.from) {
+      logger.error("[start] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
     ctx.session = {
       step: "welcome",
       botType: "forex",
-      telegramId: ctx.from.id.toString(),
+      telegramId,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
     await ctx.saveSession?.();
 
@@ -1836,20 +1828,21 @@ export default function (bot: Telegraf<BotContext>) {
         `✅ <b>Step 2:</b> Register at Exco Trader, deposit <b>$100</b> or more, and provide your <b>Login ID</b> 💰\n` +
         `✅ <b>Step 3:</b> Create Deriv account (Optional) 📊\n\n` +
         `⏳ <b>Once all steps are completed, you will gain full access to Afibie FX Signals - where strategy meets profitability!</b> 💰📊\n\n` +
-         `<i>(If you have any issues during the process, message support 👉 @Francis_Nbtc)</i>\n\n` +
+        `<i>(If you have any issues during the process, message support 👉 @Francis_Nbtc)</i>\n\n` +
         `👉 Click <b>CONTINUE</b> to start:`,
-      Markup.inlineKeyboard([
-        Markup.button.callback("🔵 CONTINUE", "continue_to_captcha"),
-      ])
+      Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_captcha")])
     );
   });
 
   bot.action("continue_to_captcha", async (ctx) => {
     await ctx.answerCbQuery();
+    if (!ctx.from) {
+      logger.error("[continue_to_captcha] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
     if (ctx.session.step !== "welcome") {
-      logger.warn(
-        `[continue_to_captcha] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[continue_to_captcha] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -1870,11 +1863,12 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.action("get_invite_link", getLinkLimiter, async (ctx) => {
-    const telegramId = ctx.from?.id?.toString();
-    if (!telegramId) {
-      logger.error("[get_invite_link] No user ID found");
+    if (!ctx.from) {
+      logger.error("[get_invite_link] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
       return;
     }
+    const telegramId = ctx.from.id.toString();
 
     try {
       await connectDB();
@@ -1895,13 +1889,10 @@ export default function (bot: Telegraf<BotContext>) {
         throw new Error("GROUP_CHAT_ID is not defined");
       }
 
-      const inviteLink = await bot.telegram.createChatInviteLink(
-        GROUP_CHAT_ID,
-        {
-          expire_date: Math.floor(Date.now() / 1000) + 1800,
-          member_limit: 1,
-        }
-      );
+      const inviteLink = await bot.telegram.createChatInviteLink(GROUP_CHAT_ID, {
+        expire_date: Math.floor(Date.now() / 1000) + 1800,
+        member_limit: 1,
+      });
       await ctx.replyWithHTML(
         `<b>🔗 Welcome to Afibie FX Signals! 🚀</b>\n\n` +
           `Here's your exclusive access link: <a href="${inviteLink.invite_link}">${inviteLink.invite_link}</a>\n\n` +
@@ -1919,12 +1910,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("confirm_final", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[confirm_final] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "final_confirmation") {
-      logger.warn(
-        `[confirm_final] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[confirm_final] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Session expired or invalid. Please start over with /start.`
@@ -1935,16 +1930,14 @@ export default function (bot: Telegraf<BotContext>) {
     try {
       await connectDB();
       await saveAndNotify(ctx, ctx.session);
-      
       ctx.session = {
         step: "completed",
         botType: "forex",
-        telegramId: ctx.from.id.toString(),
+        telegramId,
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
       await ctx.saveSession?.();
-      
       await ctx.editMessageReplyMarkup(undefined);
     } catch (error: any) {
       logger.error(`[confirm_final] Error:`, error);
@@ -1957,12 +1950,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("cancel_final", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[cancel_final] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "final_confirmation") {
-      logger.warn(
-        `[cancel_final] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[cancel_final] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid action. Please start over with /start.`
@@ -1973,9 +1970,9 @@ export default function (bot: Telegraf<BotContext>) {
     ctx.session = {
       step: "welcome",
       botType: "forex",
-      telegramId: ctx.from.id.toString(),
+      telegramId,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
     await ctx.saveSession?.();
 
@@ -1988,6 +1985,11 @@ export default function (bot: Telegraf<BotContext>) {
   });
 
   bot.on(message("text"), async (ctx) => {
+    if (!ctx.from) {
+      logger.error("[text] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
     const text = ctx.message.text.trim();
     const session = ctx.session;
 
@@ -2007,9 +2009,7 @@ export default function (bot: Telegraf<BotContext>) {
             `✅ <b>Correct!</b>\n\n` +
               `You've passed the captcha verification.\n\n` +
               `👉 Click <b>CONTINUE</b> to proceed to country selection.`,
-            Markup.inlineKeyboard([
-              Markup.button.callback("🔵 CONTINUE", "continue_to_country"),
-            ])
+            Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_country")])
           );
         } else {
           const newCaptcha = generateCaptcha();
@@ -2040,9 +2040,7 @@ export default function (bot: Telegraf<BotContext>) {
             `📌 <b>Submit Exco Trader Login ID</b>\n` +
             `🔹 Check your email for your Login ID.\n` +
             `🔹 Enter your Login ID below after clicking Done.`,
-          Markup.inlineKeyboard([
-            Markup.button.callback("✅ Done", "done_exco"),
-          ])
+          Markup.inlineKeyboard([Markup.button.callback("✅ Done", "done_exco")])
         );
         break;
       }
@@ -2063,9 +2061,7 @@ export default function (bot: Telegraf<BotContext>) {
         await ctx.replyWithHTML(
           `<b>✅ You've provided your Exco Trader Login ID!</b>\n\n` +
             `👉 Click <b>CONTINUE</b> to proceed to Deriv registration (optional).`,
-          Markup.inlineKeyboard([
-            Markup.button.callback("🔵 CONTINUE", "continue_to_deriv"),
-          ])
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_deriv")])
         );
         break;
       }
@@ -2083,9 +2079,7 @@ export default function (bot: Telegraf<BotContext>) {
         session.step = "final_confirmation";
         await ctx.saveSession?.();
 
-        const details = [
-          `Exco Trader Login ID: ${session.excoTraderLoginId || "Not provided"}`
-        ]
+        const details = [`Exco Trader Login ID: ${session.excoTraderLoginId || "Not provided"}`]
           .filter(Boolean)
           .join("\n");
 
@@ -2119,9 +2113,7 @@ export default function (bot: Telegraf<BotContext>) {
         await ctx.replyWithHTML(
           `<b>✅ You've provided your Exco Trader Login ID!</b>\n\n` +
             `👉 Click <b>CONTINUE</b> to proceed to Deriv registration (optional).`,
-          Markup.inlineKeyboard([
-            Markup.button.callback("🔵 CONTINUE", "continue_to_deriv"),
-          ])
+          Markup.inlineKeyboard([Markup.button.callback("🔵 CONTINUE", "continue_to_deriv")])
         );
         break;
       }
@@ -2130,12 +2122,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("continue_to_country", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[continue_to_country] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "captcha_confirmed") {
-      logger.warn(
-        `[continue_to_country] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[continue_to_country] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -2148,20 +2144,22 @@ export default function (bot: Telegraf<BotContext>) {
 
     await ctx.replyWithHTML(
       `<b>🌍 Country Selection</b>\n\n` + `What is your country of residence?`,
-      Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]])
-        .oneTime()
-        .resize()
+      Markup.keyboard([["USA", "Canada", "UK"], ["Rest of the world"]]).oneTime().resize()
     );
   });
 
   bot.action("done_exco", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[done_exco] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "waiting_for_done") {
-      logger.warn(
-        `[done_exco] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[done_exco] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -2182,12 +2180,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("continue_to_deriv", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[continue_to_deriv] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "exco_confirmed") {
-      logger.warn(
-        `[continue_to_deriv] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[continue_to_deriv] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -2214,12 +2216,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("done_deriv", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[done_deriv] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "deriv") {
-      logger.warn(
-        `[done_deriv] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[done_deriv] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -2230,9 +2236,7 @@ export default function (bot: Telegraf<BotContext>) {
     ctx.session.step = "final_confirmation";
     await ctx.saveSession?.();
 
-    const details = [
-      `Exco Trader Login ID: ${ctx.session.excoTraderLoginId || "Not provided"}`
-    ]
+    const details = [`Exco Trader Login ID: ${ctx.session.excoTraderLoginId || "Not provided"}`]
       .filter(Boolean)
       .join("\n");
 
@@ -2251,12 +2255,16 @@ export default function (bot: Telegraf<BotContext>) {
 
   bot.action("continue_to_login_id", async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.session = await sessionManager.getSession(ctx.from.id.toString());
-    
+    if (!ctx.from) {
+      logger.error("[continue_to_login_id] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
+    const telegramId = ctx.from.id.toString();
+    ctx.session = await sessionManager.getSession(telegramId);
+
     if (ctx.session.step !== "login_id") {
-      logger.warn(
-        `[continue_to_login_id] Invalid session step (${ctx.session.step})`
-      );
+      logger.warn(`[continue_to_login_id] Invalid session step (${ctx.session.step})`);
       await ctx.replyWithHTML(
         `<b>⚠️ Error</b>\n\n` +
           `🚫 Invalid step. Please start over with /start.`
@@ -2272,7 +2280,12 @@ export default function (bot: Telegraf<BotContext>) {
     );
   });
 
-  async function saveAndNotify(ctx: any, session: any) {
+  async function saveAndNotify(ctx: BotContext, session: SessionData) {
+    if (!ctx.from) {
+      logger.error("[saveAndNotify] No user ID found in ctx.from");
+      await ctx.reply("❌ Error: Unable to identify user. Please try again.");
+      return;
+    }
     const telegramId = ctx.from.id.toString();
     try {
       if (!session.country) {
@@ -2288,8 +2301,7 @@ export default function (bot: Telegraf<BotContext>) {
           telegramId,
           username: ctx.from.username || "unknown",
           fullName:
-            `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim() ||
-            "Unknown User",
+            `${ctx.from.first_name || ""} ${ctx.from.last_name || ""}`.trim() || "Unknown User",
           botType: "forex",
           country: session.country,
           excoTraderLoginId: session.excoTraderLoginId,
@@ -2317,10 +2329,7 @@ export default function (bot: Telegraf<BotContext>) {
   watchUserStatusChanges();
 
   bot.catch((err, ctx) => {
-    console.error(
-      `🚨 Forex Bot Error for update ${ctx.update.update_id}:`,
-      err
-    );
+    console.error(`🚨 Forex Bot Error for update ${ctx.update.update_id}:`, err);
     ctx.reply("❌ An error occurred. Please try again later.");
   });
 }
